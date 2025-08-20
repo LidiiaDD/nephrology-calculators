@@ -63,12 +63,12 @@ function Info({ className = "h-5 w-5" }: IconProps) {
   );
 }
 /* -------------------------------------------------------- */
-
+import type { ReactNode } from 'react';
 type CardProps = {
   href: string;
   title: string;
   subtitle: string;
-  icon: JSX.Element;
+  icon: ReactNode;
   badge?: string;
 };
 
