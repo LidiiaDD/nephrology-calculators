@@ -108,7 +108,10 @@ export default function DSIPage() {
   const allAnswered = answeredCount === SYMPTOMS.length;
 
   const totalScore = useMemo(
-    () => (answers ?? []).reduce<number>((sum, v) => sum + (v ?? 0), 0),
+    () =>
+      answers.reduce<number>((s, v) => {
+        return s + (v ?? 0);
+      }, 0),
     [answers]
   );
 

@@ -87,11 +87,13 @@ export default function BDIPage() {
     scrolledOnce.current = false;
   };
 
-  const totalScore = useMemo(
-    () =>
-      answers.reduce((sum, v) => (v == null ? sum : sum + OPTIONS[v].points), 0),
-    [answers]
-  );
+  const totalScore = useMemo(() => {
+    return answers.reduce<number>((sum, idx) => {
+      if (idx == null) return sum;          // пропускаємо порожні
+      return sum + OPTIONS[idx].points;     // якщо OPTIONS — масив
+      // return sum + OPTIONS[idx as number].points; // якщо TS лається — підкажи, що це number
+    }, 0);
+  }, [answers]);
 
   const answeredCount = answers.filter((v) => v != null).length;
   const allAnswered = answeredCount === BDI_QUESTIONS.length;
