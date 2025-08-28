@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 
+type Tone = "success" | "warning" | "danger";
 type Answer = "indep" | "dep" | null;
 
 const ITEMS = [
@@ -30,7 +31,7 @@ export default function KatzADLPage() {
   );
   const progress = Math.round((answered / ITEMS.length) * 100);
 
-  const klass = useMemo(() => {
+  const klass = useMemo<{ tag: string; tone: Tone }>(() => {
     if (score >= 6) return { tag: "Повна незалежність", tone: "success" };
     if (score >= 4) return { tag: "Помірна залежність", tone: "warning" };
     return { tag: "Виражена залежність", tone: "danger" };
@@ -67,7 +68,7 @@ export default function KatzADLPage() {
     try {
       await navigator.clipboard.writeText(txt);
     } catch {
-      // ignore
+      /* ignore */
     }
   }
 
@@ -84,7 +85,9 @@ export default function KatzADLPage() {
       {/* Верхній прогрес */}
       <div className="mt-6 rounded-2xl border p-4">
         <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
-          <span>Заповнено: {answered} / {ITEMS.length}</span>
+          <span>
+            Заповнено: {answered} / {ITEMS.length}
+          </span>
           <span>{progress}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
@@ -105,6 +108,7 @@ export default function KatzADLPage() {
             return (
               <div
                 key={q.id}
+                data-card="adl-item"
                 className={`rounded-2xl border p-4 transition ${
                   isEmpty ? "border-amber-300 bg-amber-50/40" : "border-gray-200"
                 }`}
@@ -244,14 +248,14 @@ function Badge({
   tone,
   children,
 }: {
-  tone: "success" | "warning" | "danger";
+  tone: Tone;
   children: React.ReactNode;
 }) {
-  const map: Record<typeof tone, string> = {
+  const map: Record<Tone, string> = {
     success: "bg-green-100 text-green-800 ring-green-200",
     warning: "bg-amber-100 text-amber-800 ring-amber-200",
     danger: "bg-rose-100 text-rose-800 ring-rose-200",
-  } as any;
+  };
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ring-1 ${map[tone]}`}

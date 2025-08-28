@@ -5,51 +5,13 @@ import Link from "next/link";
 
 /**
  * SPPB — Short Physical Performance Battery (0–12)
- * Повний підрахунок:
- *  • Рівновага: side-by-side / semi-tandem / tandem (тримання до 10 c)
- *  • Ходьба 4 м: вводимо час (сек), рахуємо швидкість (м/с) і бали за порогами
- *  • Підйом зі стільця 5 разів: вводимо час (сек), бали за порогами
- *
- * Порогові значення (типові з публікацій SPPB; можуть відрізнятись у різних джерелах/центрів):
- *  ГІТЬ (швидкість = дистанція/час):
- *    0 — не виконав / не може ходити
- *    1 — <0.40 м/с
- *    2 — 0.40–0.59
- *    3 — 0.60–0.79
- *    4 — ≥0.80
- *
- *  Стілець (5 підйомів, сек):
- *    0 — не виконав
- *    1 — ≥16.70
- *    2 — 13.70–16.69
- *    3 — 11.20–13.69
- *    4 — ≤11.19
- *
- *  Рівновага (10-секундні позиції):
- *    0 — side-by-side <10 c або «не виконав»
- *    1 — side-by-side 10 c, але semi-tandem <10 c
- *    2 — semi-tandem 10 c, але tandem <3 c
- *    3 — tandem 3–9.99 c
- *    4 — tandem 10 c
- *
- * Поля спочатку порожні. Десятковий роздільник — «,» або «.»
+ * Рівновага (side/semi/tandem, до 10 с), ходьба 4 м (м/с), підйом зі стільця (5 разів).
+ * Поля спочатку порожні. Десятковий роздільник — «,» або «.».
  */
 
-type Balance = {
-  side: string;
-  semi: string;
-  tandem: string;
-  unable: boolean;
-};
-type Gait = {
-  distance: string; // м
-  time: string; // c
-  unable: boolean;
-};
-type Chair = {
-  time: string; // c
-  unable: boolean;
-};
+type Balance = { side: string; semi: string; tandem: string; unable: boolean };
+type Gait = { distance: string; time: string; unable: boolean };
+type Chair = { time: string; unable: boolean };
 
 function toNum(s: string): number | null {
   if (!s.trim()) return null;
@@ -72,11 +34,16 @@ function interpTotal(t: number) {
 }
 
 export default function Page() {
-  const [balance, setBalance] = useState<Balance>({ side: "", semi: "", tandem: "", unable: false });
+  const [balance, setBalance] = useState<Balance>({
+    side: "",
+    semi: "",
+    tandem: "",
+    unable: false,
+  });
   const [gait, setGait] = useState<Gait>({ distance: "4", time: "", unable: false });
   const [chair, setChair] = useState<Chair>({ time: "", unable: false });
 
-  // Рівновага → 0–4 (або null, якщо не заповнено)
+  // Рівновага → 0–4 (або null)
   const balanceScore = useMemo<number | null>(() => {
     if (balance.unable) return 0;
     const side = toNum(balance.side);
@@ -99,7 +66,6 @@ export default function Page() {
     if (dist === null || time === null || time <= 0) return null;
 
     const speed = dist / time; // м/с
-
     if (speed < 0.4) return 1;
     if (speed < 0.6) return 2;
     if (speed < 0.8) return 3;
@@ -120,7 +86,10 @@ export default function Page() {
 
   const partials: Array<number | null> = [balanceScore, gaitScore, chairScore];
   const completed = partials.filter((s) => s !== null).length;
-  const total = partials.reduce((acc, v) => (v ?? 0) + acc, 0);
+
+  // ✅ Явний тип акумулятора — number
+  const total = partials.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+
   const done = completed === partials.length;
 
   async function copyToClipboard() {
@@ -134,7 +103,7 @@ export default function Page() {
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
       alert("Скопійовано в буфер обміну.");
-    } catch (e) {
+    } catch {
       alert("Не вдалося скопіювати.");
     }
   }
@@ -342,7 +311,8 @@ export default function Page() {
                   {balanceScore === null ? "незаповнено" : `${balanceScore} / 4`}
                 </div>
                 <div className="text-xs text-gray-500">
-                  side: {balance.side || "—"} c, semi: {balance.semi || "—"} c, tandem: {balance.tandem || "—"} c
+                  side: {balance.side || "—"} c, semi: {balance.semi || "—"} c, tandem:{" "}
+                  {balance.tandem || "—"} c
                 </div>
               </div>
             </div>
@@ -382,7 +352,6 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Другий прогрес — просто візуальний дубль праворуч */}
           <div className="mt-2">
             <div className="mb-1 text-sm text-gray-600">
               Заповнено: {completed} / {partials.length}
@@ -396,8 +365,8 @@ export default function Page() {
           </div>
 
           <div className="rounded-xl border bg-amber-50 p-3 text-sm text-amber-900">
-            Результат є довідковим і не замінює консультацію лікаря. Для клінічних рішень користуйтеся
-            офіційним протоколом вашого закладу.
+            Результат є довідковим і не замінює консультацію лікаря. Для клінічних рішень
+            користуйтеся офіційним протоколом вашого закладу.
           </div>
         </div>
       </div>

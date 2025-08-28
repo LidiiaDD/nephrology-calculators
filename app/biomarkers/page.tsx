@@ -1,7 +1,9 @@
 // app/biomarkers/page.tsx
 import Link from "next/link";
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Біомаркери | NephroCalc",
   description:
     "Швидкий перехід до розрахунків UACR, уромодулінового профілю та тубулярних біомаркерів.",
@@ -12,7 +14,7 @@ type IconProps = { className?: string };
 
 function TestTubes({ className = "h-6 w-6" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <rect x="5" y="3" width="5" height="18" rx="2" />
       <rect x="14" y="3" width="5" height="18" rx="2" />
@@ -22,7 +24,7 @@ function TestTubes({ className = "h-6 w-6" }: IconProps) {
 }
 function Droplets({ className = "h-6 w-6" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M12 3c-3 4-5 6-5 9a5 5 0 1 0 10 0c0-3-2-5-5-9z" />
     </svg>
@@ -30,7 +32,7 @@ function Droplets({ className = "h-6 w-6" }: IconProps) {
 }
 function FlaskConical({ className = "h-6 w-6" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M10 2h4M9 2v5L4 20a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L15 7V2" />
       <path d="M8 13h8" />
@@ -39,7 +41,7 @@ function FlaskConical({ className = "h-6 w-6" }: IconProps) {
 }
 function ArrowLeft({ className = "h-4 w-4" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
     </svg>
@@ -47,7 +49,7 @@ function ArrowLeft({ className = "h-4 w-4" }: IconProps) {
 }
 function ChevronRight({ className = "h-4 w-4" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M9 18l6-6-6-6" />
     </svg>
@@ -55,7 +57,7 @@ function ChevronRight({ className = "h-4 w-4" }: IconProps) {
 }
 function Info({ className = "h-5 w-5" }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 8h.01M11 12h2v6h-2z" />
@@ -63,7 +65,7 @@ function Info({ className = "h-5 w-5" }: IconProps) {
   );
 }
 /* -------------------------------------------------------- */
-import type { ReactNode } from 'react';
+
 type CardProps = {
   href: string;
   title: string;
@@ -137,7 +139,7 @@ export default function BiomarkersPage() {
             badge="Сеча"
           />
 
-        <BiomarkerCard
+          <BiomarkerCard
             href="/biomarkers/umodulin"
             title="Уромодулін (профіль)"
             subtitle="Uromodulin (Tamm–Horsfall): індекси, фракції та співвідношення для клінічної інтерпретації."

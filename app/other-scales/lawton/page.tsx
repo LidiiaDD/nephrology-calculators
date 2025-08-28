@@ -1,53 +1,56 @@
-"use client";
+'use client';
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from 'react';
 
 /** Lawton IADL — 8 пунктів, true=самостійно (1 бал), false=потребує допомоги (0), null=пусто */
 const ITEMS = [
-  "Вміння користуватися телефоном",
-  "Покупки",
-  "Приготування їжі",
-  "Прибирання",
-  "Прання",
-  "Користування транспортом",
-  "Ведення фінансів",
-  "Прийом ліків",
+  'Вміння користуватися телефоном',
+  'Покупки',
+  'Приготування їжі',
+  'Прибирання',
+  'Прання',
+  'Користування транспортом',
+  'Ведення фінансів',
+  'Прийом ліків',
 ] as const;
 
 type Answer = boolean | null;
 
 function interpret(score: number) {
-  if (score === 8) return { label: "Повна незалежність", tone: "bg-green-100 text-green-800" };
-  if (score >= 5) return { label: "Помірна залежність", tone: "bg-amber-100 text-amber-800" };
-  return { label: "Виражена залежність", tone: "bg-red-100 text-red-800" };
+  if (score === 8) return { label: 'Повна незалежність', tone: 'bg-green-100 text-green-800' };
+  if (score >= 5) return { label: 'Помірна залежність', tone: 'bg-amber-100 text-amber-800' };
+  return { label: 'Виражена залежність', tone: 'bg-red-100 text-red-800' };
 }
 
 export default function LawtonIADLPage() {
-  const [answers, setAnswers] = useState<Answer[]>(
-    Array(ITEMS.length).fill(null)
-  );
+  const [answers, setAnswers] = useState<Answer[]>(Array(ITEMS.length).fill(null));
   const [highlight, setHighlight] = useState(false);
   const refs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  const completed = useMemo(() => answers.filter(a => a !== null).length, [answers]);
-  const score = useMemo(() => answers.filter(a => a === true).length, [answers]);
+  const completed = useMemo(() => answers.filter((a) => a !== null).length, [answers]);
+  const score = useMemo(() => answers.filter((a) => a === true).length, [answers]);
   const progress = Math.round((completed / ITEMS.length) * 100);
-  const firstEmpty = useMemo(() => answers.findIndex(a => a === null), [answers]);
+  const firstEmpty = useMemo(() => answers.findIndex((a) => a === null), [answers]);
   const interp = interpret(score);
 
   const setAnswer = (idx: number, val: boolean) =>
-    setAnswers(prev => {
+    setAnswers((prev) => {
       const next = [...prev];
       next[idx] = val;
       return next;
     });
 
+  // ВАЖЛИВО: ref-колбек має ПОВЕРТАТИ void
+  const setItemRef = (idx: number) => (el: HTMLDivElement | null): void => {
+    refs.current[idx] = el;
+  };
+
   const goFirstEmpty = () => {
     if (firstEmpty < 0) return;
     const el = refs.current[firstEmpty];
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    el?.classList.add("ring-2", "ring-red-300");
-    setTimeout(() => el?.classList.remove("ring-2", "ring-red-300"), 1200);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.classList.add('ring-2', 'ring-red-300');
+    setTimeout(() => el?.classList.remove('ring-2', 'ring-red-300'), 1200);
   };
 
   const resetAll = () => {
@@ -57,12 +60,19 @@ export default function LawtonIADLPage() {
 
   const copyResult = async () => {
     const lines = [
-      "Lawton IADL:",
-      ...ITEMS.map((q, i) => `${i + 1}. ${q}: ${answers[i] === null ? "—" : answers[i] ? "самостійно" : "потребує допомоги"}`),
+      'Lawton IADL:',
+      ...ITEMS.map(
+        (q, i) =>
+          `${i + 1}. ${q}: ${
+            answers[i] === null ? '—' : answers[i] ? 'самостійно' : 'потребує допомоги'
+          }`,
+      ),
       `Сумарний бал: ${score} / 8`,
       `Інтерпретація: ${interp.label}`,
     ];
-    try { await navigator.clipboard.writeText(lines.join("\n")); } catch {}
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+    } catch {}
   };
 
   return (
@@ -71,7 +81,8 @@ export default function LawtonIADLPage() {
         Lawton IADL — індекс інструментальної повсякденної активності
       </h1>
       <p className="mt-2 text-gray-600">
-        Поля спочатку порожні. Оберіть <b>Самостійно</b> або <b>Потребує допомоги</b> для кожного пункту. Підрахунок і прогрес оновлюються миттєво.
+        Поля спочатку порожні. Оберіть <b>Самостійно</b> або <b>Потребує допомоги</b> для кожного
+        пункту. Підрахунок і прогрес оновлюються миттєво.
       </p>
 
       <div className="mt-6 grid gap-8 md:grid-cols-2">
@@ -80,7 +91,9 @@ export default function LawtonIADLPage() {
           {/* Мобільний прогрес-бар (видно лише на мобільних) */}
           <div className="rounded-2xl border bg-white p-5 shadow-sm md:hidden">
             <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
-              <span>Заповнено: {completed} / {ITEMS.length}</span>
+              <span>
+                Заповнено: {completed} / {ITEMS.length}
+              </span>
               <span>{progress}%</span>
             </div>
             <div className="h-2 w-full rounded-full bg-gray-200">
@@ -94,8 +107,10 @@ export default function LawtonIADLPage() {
             return (
               <div
                 key={idx}
-                ref={(el) => (refs.current[idx] = el)}
-                className={`rounded-2xl border p-4 transition ${missing ? "border-red-300 bg-red-50/50" : "border-gray-200 bg-white"}`}
+                ref={setItemRef(idx)}
+                className={`rounded-2xl border p-4 transition ${
+                  missing ? 'border-red-300 bg-red-50/50' : 'border-gray-200 bg-white'
+                }`}
               >
                 <div className="mb-3 flex items-start gap-2">
                   <span className="mt-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
@@ -114,11 +129,11 @@ export default function LawtonIADLPage() {
                     type="button"
                     onClick={() => setAnswer(idx, true)}
                     aria-pressed={val === true}
-                    className={`rounded-full border px-3 py-2 text-sm transition
-                      ${val === true
-                        ? "border-blue-300 bg-blue-50 text-blue-700 ring-2 ring-blue-200"
-                        : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
-                      }`}
+                    className={`rounded-full border px-3 py-2 text-sm transition ${
+                      val === true
+                        ? 'border-blue-300 bg-blue-50 text-blue-700 ring-2 ring-blue-200'
+                        : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
+                    }`}
                   >
                     Самостійно
                   </button>
@@ -126,11 +141,11 @@ export default function LawtonIADLPage() {
                     type="button"
                     onClick={() => setAnswer(idx, false)}
                     aria-pressed={val === false}
-                    className={`rounded-full border px-3 py-2 text-sm transition
-                      ${val === false
-                        ? "border-rose-300 bg-rose-50 text-rose-700 ring-2 ring-rose-200"
-                        : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
-                      }`}
+                    className={`rounded-full border px-3 py-2 text-sm transition ${
+                      val === false
+                        ? 'border-rose-300 bg-rose-50 text-rose-700 ring-2 ring-rose-200'
+                        : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
+                    }`}
                   >
                     Потребує допомоги / не виконує
                   </button>
@@ -142,7 +157,10 @@ export default function LawtonIADLPage() {
           <div className="flex flex-wrap gap-3">
             {completed < ITEMS.length && (
               <button
-                onClick={() => { setHighlight(true); goFirstEmpty(); }}
+                onClick={() => {
+                  setHighlight(true);
+                  goFirstEmpty();
+                }}
                 className="rounded-lg bg-blue-600 px-5 py-2.5 text-white shadow hover:bg-blue-700"
               >
                 До першого незаповненого
@@ -162,7 +180,9 @@ export default function LawtonIADLPage() {
           {/* Sticky прогрес-бар (лише md+) */}
           <div className="sticky top-6 hidden rounded-2xl border bg-white p-5 shadow-sm md:block">
             <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
-              <span>Заповнено: {completed} / {ITEMS.length}</span>
+              <span>
+                Заповнено: {completed} / {ITEMS.length}
+              </span>
               <span>{progress}%</span>
             </div>
             <div className="h-3 w-full rounded-full bg-gray-200">
@@ -199,7 +219,10 @@ export default function LawtonIADLPage() {
                 Копіювати
               </button>
               <button
-                onClick={() => { setHighlight(true); goFirstEmpty(); }}
+                onClick={() => {
+                  setHighlight(true);
+                  goFirstEmpty();
+                }}
                 className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
               >
                 Перевірити заповнення

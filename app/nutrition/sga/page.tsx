@@ -1,270 +1,265 @@
-"use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+'use client';
 
-/* ----------------------------- Дані анкети ----------------------------- */
+import React, { useMemo, useState } from 'react';
 
 type Choice = { label: string; points: number };
-type Q = { id: string; label: string; choices: Choice[]; required?: boolean };
+type Question = { id: string; text: string; choices: Choice[] };
 
-const QUESTIONS: Q[] = [
+/**
+ * ⬇️ Демо-набір запитань SGA/PG-SGA.
+ * Можеш змінити тексти/бали під свою методику — логіка підрахунку універсальна.
+ */
+const QUESTIONS: Question[] = [
   {
-    id: "q1",
-    label: "1. Зниження маси тіла за останні 6 місяців",
+    id: 'q1',
+    text: 'Зміна маси за останній місяць',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Так, <5%", points: 1 },
-      { label: "Так, 5–10%", points: 2 },
-      { label: "Так, >10%", points: 3 },
+      { label: 'Немає', points: 0 },
+      { label: '≈1–5% від маси', points: 1 },
+      { label: '≈5–10%', points: 2 },
+      { label: '>10%', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q2",
-    label: "2. Зниження харчування останні 2 тижні",
+    id: 'q2',
+    text: 'Поточне харчування порівняно зі звичним',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Легке зниження", points: 1 },
-      { label: "Помірне зниження", points: 2 },
-      { label: "Виражене зниження", points: 3 },
+      { label: 'Звичне живлення', points: 0 },
+      { label: 'Трохи менше', points: 1 },
+      { label: 'Суттєво менше', points: 2 },
+      { label: 'Мінімальне/лише рідини', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q3",
-    label: "3. Симптоми з боку ШКТ (≥2 тижні)",
+    id: 'q3',
+    text: 'Апетит',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Легкі (нудота, ↓апетит)", points: 1 },
-      { label: "Помірні (нудота/діарея/блювання)", points: 2 },
-      { label: "Виражені (неможливість їсти)", points: 3 },
+      { label: 'Нормальний', points: 0 },
+      { label: 'Знижений періодично', points: 1 },
+      { label: 'Стійко знижений', points: 2 },
+      { label: 'Відсутній', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q4",
-    label: "4. Функціональний статус",
+    id: 'q4',
+    text: 'Симптоми, що заважають прийому їжі (нудота, блювання, діарея, біль тощо)',
     choices: [
-      { label: "Звичайний", points: 0 },
-      { label: "Мінімально знижений", points: 1 },
-      { label: "Обмеження активності", points: 2 },
-      { label: "Постільний режим", points: 3 },
+      { label: 'Немає', points: 0 },
+      { label: 'Легкі/епізодичні', points: 1 },
+      { label: 'Помірні', points: 2 },
+      { label: 'Виражені/часті', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q5",
-    label: "5. Підшкірна жирова клітковина",
+    id: 'q5',
+    text: 'Рівень активності / функціональний статус',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Легке зменшення", points: 1 },
-      { label: "Помірне зменшення", points: 2 },
-      { label: "Виражене зменшення", points: 3 },
+      { label: 'Звична активність', points: 0 },
+      { label: 'Легка слабкість', points: 1 },
+      { label: 'Обмежена активність', points: 2 },
+      { label: 'Переважно лежачий режим', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q6",
-    label: "6. М’язова маса (дельти, квадрицепс тощо)",
+    id: 'q6',
+    text: 'Наявність набряків / асциту',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Легке зменшення", points: 1 },
-      { label: "Помірне зменшення", points: 2 },
-      { label: "Виражене зменшення", points: 3 },
+      { label: 'Немає', points: 0 },
+      { label: 'Легкі', points: 1 },
+      { label: 'Помірні', points: 2 },
+      { label: 'Виражені', points: 3 },
     ],
-    required: true,
   },
   {
-    id: "q7",
-    label: "7. Набряки/асцит",
+    id: 'q7',
+    text: 'Втрата м’язової маси (клінічно)',
     choices: [
-      { label: "Ні", points: 0 },
-      { label: "Легкі (локальні, кілька кг)", points: 1 },
-      { label: "Помірні (генералізовані, асцит)", points: 2 },
-      { label: "Виражені (масивні, аназарка)", points: 3 },
+      { label: 'Немає', points: 0 },
+      { label: 'Незначна', points: 1 },
+      { label: 'Помірна', points: 2 },
+      { label: 'Виражена', points: 3 },
     ],
-    required: true,
+  },
+  {
+    id: 'q8',
+    text: 'Підшкірний жир (клінічно)',
+    choices: [
+      { label: 'Збережений', points: 0 },
+      { label: 'Легке зменшення', points: 1 },
+      { label: 'Помірне зменшення', points: 2 },
+      { label: 'Виражене виснаження', points: 3 },
+    ],
   },
 ];
 
-const INTERPRET = [
-  { min: 0, max: 5, label: "A — Нормальний харчовий статус", color: "green" as const },
-  { min: 6, max: 12, label: "B — Помірна недостатність харчування", color: "yellow" as const },
-  { min: 13, max: 21, label: "C — Виражена недостатність харчування", color: "red" as const },
-];
+/** Інтерпретація в стилі PG-SGA (можеш змінити пороги/тексти під свій протокол) */
+function classify(total: number) {
+  if (total >= 9) {
+    return { level: 'КРИТИЧНО: потрібна термінова оцінка/втручання', color: '#fca5a5' }; // червонуватий
+  }
+  if (total >= 4) {
+    return { level: 'Потрібна дієтологічна консультація', color: '#fde68a' }; // жовтий
+  }
+  if (total >= 2) {
+    return { level: 'Освітня підтримка / менеджмент симптомів', color: '#fef3c7' }; // світло-жовтий
+  }
+  return { level: 'Рутинне спостереження', color: '#bbf7d0' }; // зеленкуватий
+}
 
-const pill = (c: "green" | "yellow" | "red") =>
-  c === "green"
-    ? "bg-green-100 text-green-900"
-    : c === "yellow"
-    ? "bg-yellow-100 text-yellow-900"
-    : "bg-red-100 text-red-900";
+export default function SgaPage() {
+  const [answers, setAnswers] = useState<(number | null)[]>(
+    Array(QUESTIONS.length).fill(null)
+  );
 
-const LS_KEY = "sga_full_v3";
-
-/* ------------------------------ Компонент ------------------------------ */
-
-export default function SGAFullPage() {
-  const [answers, setAnswers] = useState<(number | null)[]>(Array(QUESTIONS.length).fill(null));
-  const resRef = useRef<HTMLDivElement | null>(null);
-  const firstTimeComplete = useRef(false);
-
-  // завантаження збережених відповідей
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.answers)) setAnswers(parsed.answers);
-      }
-    } catch {}
-  }, []);
-
-  // автозбереження
-  useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ answers }));
-  }, [answers]);
-
-  const setAns = (i: number, v: number) =>
-    setAnswers((prev) => {
-      const copy = [...prev];
-      copy[i] = v;
-      return copy;
-    });
-
-  const requiredCount = QUESTIONS.length;
-  const answeredCount = answers.filter((v) => v != null).length;
-  const allAnswered = answeredCount === requiredCount;
-
-  // підрахунок балів
   const total = useMemo(
     () =>
-      answers.reduce((sum, v, idx) => (v == null ? sum : sum + QUESTIONS[idx].choices[v].points), 0),
+      answers.reduce<number>((sum, v, idx) => {
+        if (v == null) return sum;
+        const choice = QUESTIONS[idx]?.choices?.[v];
+        return sum + (choice?.points ?? 0);
+      }, 0),
     [answers]
   );
 
-  const interp = useMemo(() => {
-    const x = INTERPRET.find((i) => total >= i.min && total <= i.max);
-    return x ?? { label: "Помилка оцінки", color: "red" as const };
-  }, [total]);
+  const completed = useMemo(
+    () => answers.filter((v) => v != null).length,
+    [answers]
+  );
 
-  // авто-скрол, коли вперше все заповнено
-  useEffect(() => {
-    if (allAnswered && !firstTimeComplete.current) {
-      resRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      firstTimeComplete.current = true;
-    }
-  }, [allAnswered]);
+  const summary = classify(total);
 
-  const onCopy = async () => {
-    const text = `SGA (повна): ${total}/21 — ${interp.label}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      alert("Скопійовано у буфер обміну.");
-    } catch {
-      alert(text);
-    }
-  };
-
-  const onReset = () => {
+  const reset = () =>
     setAnswers(Array(QUESTIONS.length).fill(null));
-    firstTimeComplete.current = false;
-  };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-6">
-      <h1 className="text-3xl font-bold mb-2">SGA — Subjective Global Assessment (повна)</h1>
-      <p className="text-gray-600 mb-4">
-        7 доменів, кожен оцінюється 0–3 бали. Заповніть усі пункти. Підсумок автоматично
-        оновлюється нижче.
+    <main style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+      <h1 style={{ fontSize: 28, marginBottom: 8 }}>
+        SGA / PG-SGA — оцінка харчового статусу
+      </h1>
+      <p style={{ opacity: 0.8, marginBottom: 16 }}>
+        Оберіть варіант для кожного пункту. Тексти опцій відображаються завжди.
       </p>
 
-      {/* Прогрес */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-          <span>Заповнено: {answeredCount} / {requiredCount}</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 transition-all"
-            style={{ width: `${(answeredCount / requiredCount) * 100 || 0}%` }}
-          />
-        </div>
-      </div>
+      <section
+        style={{
+          padding: 12,
+          border: '1px solid #e5e7eb',
+          borderRadius: 12,
+          marginBottom: 16,
+          background: summary.color,
+        }}
+      >
+        <strong>Проміжний підсумок:</strong>{' '}
+        {completed}/{QUESTIONS.length} відповідей ·{' '}
+        <strong>Бал: {total}</strong> · {summary.level}
+      </section>
 
-      {/* Форма */}
-      <div className="bg-white rounded-xl p-4 md:p-6 shadow space-y-5">
-        {QUESTIONS.map((q, idx) => {
-          const sel = answers[idx];
-          const missing = q.required && sel == null;
-          return (
-            <div key={q.id} className={missing ? "border-l-4 border-red-400 pl-3" : ""}>
-              <div className="font-medium mb-2">{q.label}</div>
-              <div className="flex flex-wrap gap-3">
-                {q.choices.map((c, i) => (
-                  <label key={i} className="inline-flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name={q.id}
-                      checked={sel === i}
-                      onChange={() => setAns(idx, i)}
-                    />
-                    <span className="text-sm">{c.label}</span>
-                    <span className="text-xs text-gray-500">({c.points} б.)</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      {QUESTIONS.map((q, idx) => (
+        <fieldset
+          key={q.id}
+          style={{
+            border: '1px solid #e5e7eb',
+            borderRadius: 12,
+            padding: 12,
+            marginBottom: 12,
+          }}
+        >
+          <legend style={{ fontWeight: 600, padding: '0 6px' }}>
+            {idx + 1}. {q.text}
+          </legend>
 
-        <div className="flex flex-wrap gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onReset}
-            className="rounded-xl px-5 py-2 bg-gray-100 hover:bg-gray-200"
-          >
-            Скинути
-          </button>
-          <button
-            type="button"
-            onClick={onCopy}
-            disabled={!allAnswered}
-            className={`rounded-xl px-5 py-2 font-semibold transition ${
-              allAnswered ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500"
-            }`}
-            title={allAnswered ? "Скопіювати результат" : "Заповніть усі пункти"}
-          >
-            Копіювати
-          </button>
-        </div>
-      </div>
-
-      {/* Результат */}
-      <div ref={resRef} className="mt-6" aria-live="polite">
-        <div className="rounded-2xl border shadow bg-white p-4 md:p-6">
-          <div className="text-lg md:text-xl font-bold">
-            Підсумок: <span className="font-mono">{total}</span> / 21
+          <div>
+            {q.choices.map((c, i) => {
+              const name = `q-${idx}`;
+              const checked = answers[idx] === i;
+              return (
+                <label
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    marginBottom: 6,
+                    borderRadius: 8,
+                    border: checked
+                      ? '1px solid #60a5fa'
+                      : '1px solid #e5e7eb',
+                    background: checked ? '#eff6ff' : '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name={name}
+                    value={i}
+                    checked={checked}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setAnswers((prev) => {
+                        const next = [...prev];
+                        next[idx] = val;
+                        return next;
+                      });
+                    }}
+                    style={{ transform: 'scale(1.1)' }}
+                  />
+                  <span style={{ flex: 1 }}>{c.label}</span>
+                  <span
+                    title="Бали"
+                    style={{
+                      fontVariantNumeric: 'tabular-nums',
+                      opacity: 0.7,
+                    }}
+                  >
+                    {c.points} б.
+                  </span>
+                </label>
+              );
+            })}
           </div>
-          <div className="mt-2 inline-flex items-center gap-2 text-sm">
-            <span className={`px-3 py-1 rounded-full ${pill(interp.color)}`}>{interp.label}</span>
-          </div>
-          {!allAnswered && (
-            <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-              Заповніть усі обовʼязкові пункти для коректної інтерпретації.
-            </div>
-          )}
-          <div className="mt-3 text-xs text-gray-500">
-            Результат довідковий і не замінює консультацію лікаря.
-          </div>
-        </div>
-      </div>
+        </fieldset>
+      ))}
 
-      <div className="mt-8">
-        <Link href="/nutrition" className="text-gray-600 hover:text-blue-700">
-          ← Назад до нутритивних шкал
-        </Link>
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          marginTop: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          type="button"
+          onClick={reset}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            border: '1px solid #e5e7eb',
+            background: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          Очистити відповіді
+        </button>
+
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            border: '1px solid #e5e7eb',
+            background: summary.color,
+            fontWeight: 600,
+          }}
+        >
+          Підсумок: {total} балів — {summary.level}
+        </div>
+
+        <small style={{ opacity: 0.7 }}>
+          * Шаблон демонстраційний. Відкоригуй пороги/пункти під свій протокол.
+        </small>
       </div>
-    </div>
+    </main>
   );
 }

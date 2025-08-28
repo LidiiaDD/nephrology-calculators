@@ -1,604 +1,520 @@
-"use client";
+// app/biomarkers/umodulin/page.tsx
+'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from 'next/link';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-/* ───────── helpers ───────── */
-const sanitizeDecimal = (s: string) => (s ?? "").replace(/[^\d.,-]/g, "");
+/* ---------------- helpers ---------------- */
+const sanitizeDecimal = (s: string) => (s ?? '').replace(/[^\d.,-]/g, '');
 const toNum = (s: string): number | null => {
-  const t = (s ?? "").trim();
+  const t = (s ?? '').trim();
   if (!t) return null;
-  const v = parseFloat(t.replace(",", "."));
+  const v = Number(t.replace(',', '.'));
   return Number.isFinite(v) ? v : null;
 };
-const inRange = (n: number | null, min: number, max: number) =>
-  n != null && Number.isFinite(n) && n >= min && n <= max;
+const toStr = (n: number | null | undefined, d = 2) =>
+  n == null || !Number.isFinite(n) ? '—' : n.toFixed(d);
 
-const pill = (t: "green" | "yellow" | "orange" | "red" | "gray") =>
-  t === "green"
-    ? "bg-green-100 text-green-900"
-    : t === "yellow"
-    ? "bg-yellow-100 text-yellow-900"
-    : t === "orange"
-    ? "bg-orange-100 text-orange-900"
-    : t === "red"
-    ? "bg-red-100 text-red-900"
-    : "bg-gray-100 text-gray-700";
+type SUmodU = 'ng/mL' | 'mg/L';
+type UUmodU = 'mg/L' | 'ng/mL';
+type SCreaU = 'µmol/L' | 'mg/dL';
+type UCreaU = 'mmol/L' | 'mg/dL';
+type UAlbU = 'mg/L';
 
-const LS_KEY = "uromodulin_pro_full_v1";
+/* Конверсії */
+const mgL_to_ngmL = (x: number) => x * 1000;
+const ngmL_to_mgL = (x: number) => x / 1000;
+const umolL_to_mgdl_crea = (x: number) => x / 88.4;   // 1 mg/dL ≈ 88.4 µmol/L
+const mgdl_to_mmolL_crea = (x: number) => x * 0.0884; // 1 mg/dL ≈ 0.0884 mmol/L
 
-/* ───────── Units & conversions ─────────
-   Всередині рахуємо у таких базових одиницях:
-   - sUmod, uUmod → mg/L
-   - sCrea, uCrea, BUN, Urea, UrAc → mg/dL (для коефіцієнтів також конвертуємо до mg/L або g/L за потреби)
-   - eGFR → mL/min/1.73m² (як є)
-   - uAlb → mg/L (допускаємо ввід у µg/min з перерахунком через добову діурезу L/добу)
-*/
-type UMOD_U = "mg/L" | "ng/mL";
-type SCREA_U = "mg/dL" | "µmol/L";
-type UCREA_U = "mg/dL" | "mmol/L";
-type UREA_U = "mg/dL" | "mmol/L";
-type URAC_U = "mg/dL" | "µmol/L";
-type UALB_U = "mg/L" | "µg/min";
+const LS_KEY = 'nephro:umod-profile:v1';
 
-const umodToMgL = (val: number, unit: UMOD_U) =>
-  unit === "mg/L" ? val : val / 1000; // 1 ng/mL = 0.001 mg/L
-
-const sCreaToMgDl = (val: number, unit: SCREA_U) =>
-  unit === "mg/dL" ? val : val / 88.4; // µmol/L → mg/dL
-
-const uCreaToMgDl = (val: number, unit: UCREA_U) =>
-  unit === "mg/dL" ? val : val / 0.0884; // mmol/L → mg/dL (÷0.0884 = ×11.312)
-
-const ureaToMgDl = (val: number, unit: UREA_U) =>
-  unit === "mg/dL" ? val : val * 6.0; // mmol/L → mg/dL (UREA, не BUN)
-
-const uracToMgDl = (val: number, unit: URAC_U) =>
-  unit === "mg/dL" ? val : val / 59.48; // µmol/L → mg/dL
-
-// uAlb (µg/min) -> mg/L потребує діурезу (L/добу):  µg/min × 1440 = µg/добу → /1000 = mg/добу → /діурез(L/добу) = mg/L
-const uAlbToMgL = (val: number, unit: UALB_U, diuresis_L_per_day: number | null) => {
-  if (unit === "mg/L") return val;
-  if (!inRange(diuresis_L_per_day, 0.1, 20)) return null; // потребує валідного діурезу
-  const mg_per_day = (val * 1440) / 1000.0;
-  return mg_per_day / (diuresis_L_per_day as number);
+/* Пороги (клінічні «прапорці», орієнтовно) */
+const FLAGS = {
+  uUmodLow_mgL: 20,      // uUmod < 20 мг/л — ранній тубулярний ризик
+  FeUmodLow_pct: 10,     // FeUmod < 10% — можливий дефіцит секреції
+  uAlb_uUmodHigh: 0.94,  // uAlb/uUmod > 0.94 — ризик прогресування ХХН
 };
 
-/* ───────── component ───────── */
-export default function UromodulinProPage() {
-  // Значення як РЯДКИ (щоб поля могли бути порожні)
-  const [sUmodStr, setSUmodStr] = useState("");
-  const [uUmodStr, setUUmodStr] = useState("");
-  const [sCreaStr, setSCreaStr] = useState("");
-  const [uCreaStr, setUCreaStr] = useState("");
-  const [egfrStr, setEgfrStr] = useState(""); // опційно
+/* ---------------- icons ---------------- */
+const ArrowLeft = ({ className = 'h-4 w-4' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+       className={className} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
+  </svg>
+);
+const Info = ({ className = 'h-5 w-5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+       className={className} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 8h.01M11 12h2v6h-2z" />
+  </svg>
+);
 
-  // Додаткові біохімічні
-  const [bunStr, setBunStr] = useState("");
-  const [ureaStr, setUreaStr] = useState("");
-  const [uracStr, setUracStr] = useState("");
+/* ---------------- page ---------------- */
+export default function UromodulinProfilePage() {
+  // одиниці
+  const [sUmodU, setSUmodU] = useState<SUmodU>('ng/mL');
+  const [uUmodU, setUUmodU] = useState<UUmodU>('mg/L');
+  const [sCreaU, setSCreaU] = useState<SCreaU>('µmol/L');
+  const [uCreaU, setUCreaU] = useState<UCreaU>('mmol/L');
+  const [uAlbU]  = useState<UAlbU>('mg/L');
 
-  // Альбумін сечі та діурез
-  const [uAlbStr, setUAlbStr] = useState("");
-  const [diuresisStr, setDiuresisStr] = useState("");
+  // значення (рядками, щоб не було примусових «0»)
+  const [sUmodStr, setSUmodStr] = useState('');
+  const [uUmodStr, setUUmodStr] = useState('');
+  const [sCreaStr, setSCreaStr] = useState('');
+  const [uCreaStr, setUCreaStr] = useState('');
+  const [egfrStr,  setEgfrStr]  = useState(''); // мл/хв/1.73 м² (необов’язково, але бажано)
+  const [uAlbStr,  setUAlbStr]  = useState(''); // мг/л (необов’язково)
 
-  // Одиниці
-  const [sUmodU, setSUmodU] = useState<UMOD_U>("mg/L");
-  const [uUmodU, setUUmodU] = useState<UMOD_U>("mg/L");
-  const [sCreaU, setSCreaU] = useState<SCREA_U>("mg/dL");
-  const [uCreaU, setUCreaU] = useState<UCREA_U>("mg/dL");
-  const [ureaU, setUreaU] = useState<UREA_U>("mg/dL");
-  const [uracU, setUracU] = useState<URAC_U>("mg/dL");
-  const [uAlbU, setUAlbU] = useState<UALB_U>("mg/L");
-
-  // Відновлення/збереження
+  // авто-завантаження/збереження
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
         const v = JSON.parse(raw);
-        setSUmodStr(v.sUmodStr ?? ""); setUUmodStr(v.uUmodStr ?? "");
-        setSCreaStr(v.sCreaStr ?? ""); setUCreaStr(v.uCreaStr ?? "");
-        setEgfrStr(v.egfrStr ?? "");
-        setBunStr(v.bunStr ?? ""); setUreaStr(v.ureaStr ?? ""); setUracStr(v.uracStr ?? "");
-        setUAlbStr(v.uAlbStr ?? ""); setDiuresisStr(v.diuresisStr ?? "");
-        setSUmodU(v.sUmodU ?? "mg/L"); setUUmodU(v.uUmodU ?? "mg/L");
-        setSCreaU(v.sCreaU ?? "mg/dL"); setUCreaU(v.uCreaU ?? "mg/dL");
-        setUreaU(v.ureaU ?? "mg/dL"); setUracU(v.uracU ?? "mg/dL"); setUAlbU(v.uAlbU ?? "mg/L");
+        setSUmodU(v.sUmodU ?? 'ng/mL'); setUUmodU(v.uUmodU ?? 'mg/L');
+        setSCreaU(v.sCreaU ?? 'µmol/L'); setUCreaU(v.uCreaU ?? 'mmol/L');
+        setSUmodStr(v.sUmodStr ?? ''); setUUmodStr(v.uUmodStr ?? '');
+        setSCreaStr(v.sCreaStr ?? ''); setUCreaStr(v.uCreaStr ?? '');
+        setEgfrStr(v.egfrStr ?? ''); setUAlbStr(v.uAlbStr ?? '');
       }
     } catch {}
   }, []);
   useEffect(() => {
-    localStorage.setItem(
-      LS_KEY,
-      JSON.stringify({
-        sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr,
-        bunStr, ureaStr, uracStr,
-        uAlbStr, diuresisStr,
-        sUmodU, uUmodU, sCreaU, uCreaU, ureaU, uracU, uAlbU
-      })
-    );
-  }, [sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr, bunStr, ureaStr, uracStr, uAlbStr, diuresisStr, sUmodU, uUmodU, sCreaU, uCreaU, ureaU, uracU, uAlbU]);
+    try {
+      localStorage.setItem(
+        LS_KEY,
+        JSON.stringify({
+          sUmodU, uUmodU, sCreaU, uCreaU,
+          sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr, uAlbStr
+        })
+      );
+    } catch {}
+  }, [sUmodU, uUmodU, sCreaU, uCreaU, sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr, uAlbStr]);
 
-  // Парсинг
-  const sUmodIn = toNum(sUmodStr), uUmodIn = toNum(uUmodStr);
-  const sCreaIn = toNum(sCreaStr), uCreaIn = toNum(uCreaStr);
-  const egfr = toNum(egfrStr);
+  // парсинг → числа
+  const sUmod_in = useMemo(() => toNum(sUmodStr), [sUmodStr]); // ng/mL або mg/L
+  const uUmod_in = useMemo(() => toNum(uUmodStr), [uUmodStr]); // mg/L або ng/mL
+  const sCrea_in = useMemo(() => toNum(sCreaStr), [sCreaStr]); // µmol/L або mg/dL
+  const uCrea_in = useMemo(() => toNum(uCreaStr), [uCreaStr]); // mmol/L або mg/dL
+  const egfr     = useMemo(() => toNum(egfrStr),   [egfrStr]);  // mL/min/1.73m²
+  const uAlb     = useMemo(() => toNum(uAlbStr),   [uAlbStr]);  // mg/L
 
-  const bunIn = toNum(bunStr), ureaIn = toNum(ureaStr), uracIn = toNum(uracStr);
-  const uAlbIn = toNum(uAlbStr), diuresisIn = toNum(diuresisStr);
+  // конверсії у робочі «базові» одиниці:
+  // sUmod → ng/mL; uUmod → mg/L; sCrea → mg/dL; uCrea → mmol/L
+  const sUmod_ngmL = useMemo(() => {
+    if (sUmod_in == null) return null;
+    return sUmodU === 'ng/mL' ? sUmod_in : mgL_to_ngmL(sUmod_in);
+  }, [sUmod_in, sUmodU]);
 
-  // Конверсії до внутрішніх одиниць
-  const sUmod = sUmodIn != null ? umodToMgL(sUmodIn, sUmodU) : null; // mg/L
-  const uUmod = uUmodIn != null ? umodToMgL(uUmodIn, uUmodU) : null; // mg/L
-  const sCrea = sCreaIn != null ? sCreaToMgDl(sCreaIn, sCreaU) : null; // mg/dL
-  const uCrea = uCreaIn != null ? uCreaToMgDl(uCreaIn, uCreaU) : null; // mg/dL
-  const bun = bunIn != null ? bunIn : null;                              // mg/dL
-  const urea_mgdl = ureaIn != null ? ureaToMgDl(ureaIn, ureaU) : null;   // mg/dL
-  const urac_mgdl = uracIn != null ? uracToMgDl(uracIn, uracU) : null;   // mg/dL
-  const uAlb_mgL = uAlbIn != null ? uAlbToMgL(uAlbIn, uAlbU, diuresisIn ?? null) : null; // mg/L (або null, якщо бракує діурезу)
+  const uUmod_mgL = useMemo(() => {
+    if (uUmod_in == null) return null;
+    return uUmodU === 'mg/L' ? uUmod_in : ngmL_to_mgL(uUmod_in);
+  }, [uUmod_in, uUmodU]);
 
-  // Валідація (широкі робочі діапазони)
-  const sUmodOk = inRange(sUmod, 0, 5000);
-  const uUmodOk = inRange(uUmod, 0, 10000);
-  const sCreaOk = inRange(sCrea, 0.1, 25);
-  const uCreaOk = inRange(uCrea, 1, 1000);
-  const egfrOk = egfr == null || inRange(egfr, 1, 200);
+  const sCrea_mgdl = useMemo(() => {
+    if (sCrea_in == null) return null;
+    return sCreaU === 'mg/dL' ? sCrea_in : umolL_to_mgdl_crea(sCrea_in);
+  }, [sCrea_in, sCreaU]);
 
-  const bunOk = bun == null || inRange(bun, 1, 200);
-  const ureaOk = urea_mgdl == null || inRange(urea_mgdl, 1, 400);
-  const uracOk = urac_mgdl == null || inRange(urac_mgdl, 1, 30);
+  const uCrea_mmolL = useMemo(() => {
+    if (uCrea_in == null) return null;
+    return uCreaU === 'mmol/L' ? uCrea_in : mgdl_to_mmolL_crea(uCrea_in);
+  }, [uCrea_in, uCreaU]);
 
-  const uAlbOk = uAlb_mgL == null || inRange(uAlb_mgL, 0, 10000);
-  const diuresisOk = diuresisIn == null || inRange(diuresisIn, 0.1, 20);
+  // прогрес заповнення (кількість валідних чисел серед ключових)
+  const filled = useMemo(() => {
+    let n = 0;
+    if (sUmod_ngmL != null) n++;
+    if (uUmod_mgL != null) n++;
+    if (sCrea_mgdl != null) n++;
+    if (uCrea_mmolL != null) n++;
+    if (egfr != null) n++;
+    if (uAlb != null) n++;
+    return n;
+  }, [sUmod_ngmL, uUmod_mgL, sCrea_mgdl, uCrea_mmolL, egfr, uAlb]);
+  const progressPct = Math.round((filled / 6) * 100);
 
-  const readyCore = sUmodOk && uUmodOk && sCreaOk && uCreaOk && egfrOk && bunOk && ureaOk && uracOk && uAlbOk && diuresisOk;
-
-  /* ───────── Основні формули (як ти й просив) ─────────
+  /* ----------- Розрахунки профілю ----------- 
+     Формули (за твоїми вимогами):
      FeUmod (%) = ((uUmod/uCrea) / (sUmod/sCrea)) / (egfr || 1) * 100
-     FsUmod     = (sUmod * sCrea) / (uUmod * uCrea) * 100
-     (sUmod, uUmod у mg/L; sCrea, uCrea у mg/dL)
-  */
-  const FeUmod = useMemo(() => {
-    if (!readyCore || sUmod == null || uUmod == null || sCrea == null || uCrea == null) return null;
-    const denomEgfr = egfr ?? 1;
-    const val = ((uUmod / uCrea) / (sUmod / sCrea)) / denomEgfr * 100;
-    return Number.isFinite(val) ? +val.toFixed(2) : null;
-  }, [readyCore, sUmod, uUmod, sCrea, uCrea, egfr]);
+     FsUmod (%) = (sUmod*sCrea) / (uUmod*uCrea) * 100
+     uAlb/uUmod = uAlb / uUmod
+     sUmod/sCrea = sUmod / sCrea
+     Примітка: одиниці впливають на числові значення; дотримуйся вказаних вище конверсій.
+  ----------------------------------------------*/
+  const ratio_sUmod_sCrea = useMemo(() => {
+    if (sUmod_ngmL == null || sCrea_mgdl == null) return null;
+    return sUmod_ngmL / sCrea_mgdl;
+  }, [sUmod_ngmL, sCrea_mgdl]);
 
-  const FsUmod = useMemo(() => {
-    if (!readyCore || sUmod == null || uUmod == null || sCrea == null || uCrea == null) return null;
-    const val = (sUmod * sCrea) / (uUmod * uCrea) * 100;
-    return Number.isFinite(val) ? +val.toFixed(2) : null;
-  }, [readyCore, sUmod, uUmod, sCrea, uCrea]);
+  const ratio_uUmod_uCrea = useMemo(() => {
+    if (uUmod_mgL == null || uCrea_mmolL == null) return null;
+    return uUmod_mgL / uCrea_mmolL;
+  }, [uUmod_mgL, uCrea_mmolL]);
 
-  /* ───────── Допоміжні індекси з узгодженням одиниць ───────── */
-  const sCrea_mgL = sCrea != null ? sCrea * 10 : null;     // mg/dL → mg/L
-  const uCrea_mgL = uCrea != null ? uCrea * 10 : null;     // mg/dL → mg/L
-  const uCrea_gL  = uCrea != null ? uCrea * 0.01 : null;   // mg/dL → g/L
-  const bun_mgL   = bun != null ? bun * 10 : null;         // mg/dL → mg/L
-  const urea_mgL  = urea_mgdl != null ? urea_mgdl * 10 : null; // mg/dL → mg/L
-  const urac_mgL  = urac_mgdl != null ? urac_mgdl * 10 : null; // mg/dL → mg/L
+  const FeUmod_pct = useMemo(() => {
+    if (ratio_uUmod_uCrea == null || ratio_sUmod_sCrea == null) return null;
+    const denomEgfr = egfr ?? 1; // якщо eGFR не задано — не ділимо (як у твоєму коді)
+    if (denomEgfr === 0) return null;
+    return (ratio_uUmod_uCrea / ratio_sUmod_sCrea) / denomEgfr * 100;
+  }, [ratio_uUmod_uCrea, ratio_sUmod_sCrea, egfr]);
 
-  // 1) sUmod/sCrea (mg/mg)
-  const r_sUmod_sCrea = useMemo(() => {
-    if (sUmod == null || sCrea_mgL == null || sCrea_mgL === 0) return null;
-    const v = sUmod / sCrea_mgL;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, sCrea_mgL]);
+  const FsUmod_pct = useMemo(() => {
+    if (sUmod_ngmL == null || sCrea_mgdl == null || uUmod_mgL == null || uCrea_mmolL == null) return null;
+    if (uUmod_mgL === 0 || uCrea_mmolL === 0) return null;
+    return ( (sUmod_ngmL * sCrea_mgdl) / (uUmod_mgL * uCrea_mmolL) ) * 100;
+  }, [sUmod_ngmL, sCrea_mgdl, uUmod_mgL, uCrea_mmolL]);
 
-  // 2) uUmod/Cr (mg/g)
-  const r_uUmod_per_gCr = useMemo(() => {
-    if (uUmod == null || uCrea_gL == null || uCrea_gL === 0) return null;
-    const v = uUmod / uCrea_gL; // mg/L / g/L = mg/g
-    return Number.isFinite(v) ? +v.toFixed(1) : null;
-  }, [uUmod, uCrea_gL]);
+  const uAlb_over_uUmod = useMemo(() => {
+    if (uAlb == null || uUmod_mgL == null || uUmod_mgL === 0) return null;
+    return uAlb / uUmod_mgL;
+  }, [uAlb, uUmod_mgL]);
 
-  // 3) uUmod/uCrea (mg/mg) — обидва у mg/L
-  const r_uUmod_uCrea_mgmg = useMemo(() => {
-    if (uUmod == null || uCrea_mgL == null || uCrea_mgL === 0) return null;
-    const v = uUmod / uCrea_mgL;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [uUmod, uCrea_mgL]);
+  // прапорці/ризики
+  const flag_uUmodLow   = uUmod_mgL != null && uUmod_mgL < FLAGS.uUmodLow_mgL;
+  const flag_FeUmodLow  = FeUmod_pct != null && FeUmod_pct < FLAGS.FeUmodLow_pct;
+  const flag_UAlbHi     = uAlb_over_uUmod != null && uAlb_over_uUmod > FLAGS.uAlb_uUmodHigh;
 
-  // 4) uUmod/eGFR (ум. од.) — якщо egfr є
-  const r_uUmod_per_eGFR = useMemo(() => {
-    if (uUmod == null || egfr == null || egfr <= 0) return null;
-    const v = uUmod / egfr; // mg/L per (mL/min/1.73m²)
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [uUmod, egfr]);
+  const totalFlags = (flag_uUmodLow ? 1 : 0) + (flag_FeUmodLow ? 1 : 0) + (flag_UAlbHi ? 1 : 0);
 
-  // 5) sUmod/uUmod і 6) uUmod/sUmod (безрозмірні, якщо обидва mg/L)
-  const r_s_over_u = useMemo(() => {
-    if (sUmod == null || uUmod == null || uUmod === 0) return null;
-    const v = sUmod / uUmod;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, uUmod]);
+  // зведена інтерпретація
+  const summaryTone = totalFlags === 0
+    ? (filled > 0 ? 'ok' : 'muted')
+    : (totalFlags === 1 ? 'warn' : 'bad');
 
-  const r_u_over_s = useMemo(() => {
-    if (sUmod == null || uUmod == null || sUmod === 0) return null;
-    const v = uUmod / sUmod;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, uUmod]);
+  const toneClasses: Record<'ok'|'warn'|'bad'|'muted', string> = {
+    ok:    'bg-emerald-50 text-emerald-800 ring-emerald-200',
+    warn:  'bg-amber-50 text-amber-800 ring-amber-200',
+    bad:   'bg-rose-50 text-rose-800 ring-rose-200',
+    muted: 'bg-slate-50 text-slate-600 ring-slate-200',
+  };
 
-  // 7) sUmod/BUN (mg/mg)
-  const r_sUmod_BUN = useMemo(() => {
-    if (sUmod == null || bun_mgL == null || bun_mgL === 0) return null;
-    const v = sUmod / bun_mgL;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, bun_mgL]);
+  const summaryLabel = useMemo(() => {
+    if (filled === 0) return 'Заповніть ключові показники (s/u Umod, s/u Crea).';
+    if (totalFlags === 0) return 'Ознак порушення уромодулінового профілю не виявлено.';
+    if (totalFlags === 1) return 'Можливі ранні відхилення уромодулінового профілю.';
+    return 'Профіль свідчить про відхилення; розгляньте додаткову оцінку тубулярної функції.';
+  }, [filled, totalFlags]);
 
-  // 8) sUmod/Urea (mg/mg)
-  const r_sUmod_Urea = useMemo(() => {
-    if (sUmod == null || urea_mgL == null || urea_mgL === 0) return null;
-    const v = sUmod / urea_mgL;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, urea_mgL]);
-
-  // 9) sUmod/UrAc (mg/mg)
-  const r_sUmod_UrAc = useMemo(() => {
-    if (sUmod == null || urac_mgL == null || urac_mgL === 0) return null;
-    const v = sUmod / urac_mgL;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [sUmod, urac_mgL]);
-
-  // 10) uAlb/uUmod (mg/mg) — потребує uAlb у mg/L (або µg/min + діурез)
-  const r_uAlb_uUmod = useMemo(() => {
-    if (uAlb_mgL == null || uUmod == null || uUmod === 0) return null;
-    const v = uAlb_mgL / uUmod;
-    return Number.isFinite(v) ? +v.toFixed(3) : null;
-  }, [uAlb_mgL, uUmod]);
-
-  // 11) Добова екскреція Umod (за наявності діурезу): mg/добу та µg/хв
-  const excr_umod_mg_day = useMemo(() => {
-    if (uUmod == null || diuresisIn == null) return null;
-    const mg_day = uUmod * diuresisIn; // mg/L × L/day = mg/day
-    return Number.isFinite(mg_day) ? +mg_day.toFixed(1) : null;
-  }, [uUmod, diuresisIn]);
-
-  const excr_umod_ug_min = useMemo(() => {
-    if (excr_umod_mg_day == null) return null;
-    const ug_min = (excr_umod_mg_day * 1000) / 1440.0;
-    return Number.isFinite(ug_min) ? +ug_min.toFixed(1) : null;
-  }, [excr_umod_mg_day]);
-
-  // Автоскрол до результатів
+  // автоскрол до результату
   const resRef = useRef<HTMLDivElement | null>(null);
   const scrolledOnce = useRef(false);
   useEffect(() => {
-    const anyMain = FeUmod != null || FsUmod != null;
-    if (anyMain && !scrolledOnce.current) {
-      resRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (filled > 0 && !scrolledOnce.current) {
+      resRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       scrolledOnce.current = true;
     }
-  }, [FeUmod, FsUmod]);
+  }, [filled]);
 
-  // Прогрес (рахуємо всі заповнені поля)
-  const progress = useMemo(() => {
-    const fields = [sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr, bunStr, ureaStr, uracStr, uAlbStr, diuresisStr];
-    return fields.filter((s) => (s ?? "").trim()).length;
-  }, [sUmodStr, uUmodStr, sCreaStr, uCreaStr, egfrStr, bunStr, ureaStr, uracStr, uAlbStr, diuresisStr]);
+  // копіювати підсумок
+  const onCopy = () => {
+    const lines = [
+      'Уромодуліновий профіль:',
+      `sUmod (${sUmodU}) = ${sUmodStr || '—'}`,
+      `uUmod (${uUmodU}) = ${uUmodStr || '—'}`,
+      `sCrea (${sCreaU}) = ${sCreaStr || '—'}`,
+      `uCrea (${uCreaU}) = ${uCreaStr || '—'}`,
+      `eGFR (мл/хв/1.73м²) = ${egfrStr || '—'}`,
+      uAlbStr ? `uAlb (${uAlbU}) = ${uAlbStr}` : undefined,
+      '',
+      `sUmod/sCrea = ${toStr(ratio_sUmod_sCrea)}`,
+      `uUmod/uCrea = ${toStr(ratio_uUmod_uCrea)}`,
+      `FeUmod (%) = ${toStr(FeUmod_pct)}`,
+      `FsUmod (%) = ${toStr(FsUmod_pct)}`,
+      `uAlb/uUmod = ${toStr(uAlb_over_uUmod)}`,
+      '',
+      `Інтерпретація: ${summaryLabel}`,
+    ].filter(Boolean).join('\n');
+
+    try {
+      navigator.clipboard.writeText(lines);
+      alert('Результати скопійовано в буфер обміну.');
+    } catch {
+      alert(lines);
+    }
+  };
 
   const onReset = () => {
-    setSUmodStr(""); setUUmodStr(""); setSCreaStr(""); setUCreaStr(""); setEgfrStr("");
-    setBunStr(""); setUreaStr(""); setUracStr("");
-    setUAlbStr(""); setDiuresisStr("");
+    setSUmodStr(''); setUUmodStr('');
+    setSCreaStr(''); setUCreaStr('');
+    setEgfrStr('');  setUAlbStr('');
     scrolledOnce.current = false;
   };
 
-  const onCopy = async () => {
-    const parts: string[] = [];
-    if (FeUmod != null) parts.push(`FeUmod ${FeUmod}%`);
-    if (FsUmod != null) parts.push(`FsUmod ${FsUmod}`);
-    if (r_sUmod_sCrea != null) parts.push(`sUmod/sCrea ${r_sUmod_sCrea} мг/мг`);
-    if (r_uUmod_per_gCr != null) parts.push(`uUmod/Cr ${r_uUmod_per_gCr} мг/г`);
-    if (r_uUmod_uCrea_mgmg != null) parts.push(`uUmod/uCrea ${r_uUmod_uCrea_mgmg} мг/мг`);
-    if (r_uMod_over_s() != null) {} // no-op: just to keep TS happy in template literals below
-    if (r_u_over_s != null) parts.push(`uUmod/sUmod ${r_u_over_s}`);
-    if (r_s_over_u != null) parts.push(`sUmod/uUmod ${r_s_over_u}`);
-    if (r_uUmod_per_eGFR != null) parts.push(`uUmod/eGFR ${r_uUmod_per_eGFR} (ум.од.)`);
-    if (r_sUmod_BUN != null) parts.push(`sUmod/BUN ${r_sUmod_BUN} мг/мг`);
-    if (r_sUmod_Urea != null) parts.push(`sUmod/Urea ${r_sUmod_Urea} мг/мг`);
-    if (r_sUmod_UrAc != null) parts.push(`sUmod/UrAc ${r_sUmod_UrAc} мг/мг`);
-    if (r_uAlb_uUmod != null) parts.push(`uAlb/uUmod ${r_uAlb_uUmod} мг/мг`);
-    if (excr_umod_mg_day != null) parts.push(`Екскреція Umod ${excr_umod_mg_day} мг/добу`);
-    if (excr_umod_ug_min != null) parts.push(`Екскреція Umod ${excr_umod_ug_min} мкг/хв`);
-    if (!parts.length) return;
-    const txt = parts.join("; ");
-    try { await navigator.clipboard.writeText(txt); alert("Скопійовано в буфер обміну."); }
-    catch { alert(txt); }
-  };
-
-  // Візуальні бейджі (умовні)
-  const toneHigh = (v: number | null) => (v == null ? "gray" : v >= 1 ? "green" : v >= 0.5 ? "yellow" : v >= 0.1 ? "orange" : "red");
-  const toneLow  = (v: number | null) => (v == null ? "gray" : v <= 1 ? "green" : v <= 3 ? "yellow" : v <= 10 ? "orange" : "red");
-
-  // (невеличкий хак, щоб уникнути помилки TS у шаблоні onCopy)
-  function r_uMod_over_s() { return r_u_over_s; }
-
+  /* ---------------- UI ---------------- */
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-2">Uromodulin Pro — повний профіль</h1>
-      <p className="text-gray-600 mb-4">
-        Заповнюйте потрібні поля — підрахунок автоматичний. Десятковий роздільник — «,» або «.».
-      </p>
-
-      {/* Прогрес */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-          <span>Заповнено полів: {progress} / 10</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div className="h-full bg-blue-500 transition-all" style={{ width: `${(progress / 10) * 100 || 0}%` }} />
-        </div>
-      </div>
-
-      {/* Форма */}
-      <div className="bg-white rounded-2xl shadow p-4 md:p-6 space-y-6">
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* sUmod */}
+    <div className="min-h-screen bg-gradient-to-br from-blue-50/60 to-white">
+      <div className="mx-auto w-full max-w-3xl px-6 py-8 md:py-10">
+        {/* Хедер */}
+        <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <label className="block mb-1 font-semibold">Сироватковий уромодулін (sUmod)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 10" value={sUmodStr}
-                     onChange={(e) => setSUmodStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${sUmodStr && !sUmodOk ? "border-red-400" : ""}`} />
-              <select value={sUmodU} onChange={(e) => setSUmodU(e.target.value as UMOD_U)} className="p-2 rounded-lg border">
-                <option>mg/L</option><option>ng/mL</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Автоконверсія до mg/L.</p>
-          </div>
-
-          {/* uUmod */}
-          <div>
-            <label className="block mb-1 font-semibold">Уромодулін у сечі (uUmod)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 20" value={uUmodStr}
-                     onChange={(e) => setUUmodStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${uUmodStr && !uUmodOk ? "border-red-400" : ""}`} />
-              <select value={uUmodU} onChange={(e) => setUUmodU(e.target.value as UMOD_U)} className="p-2 rounded-lg border">
-                <option>mg/L</option><option>ng/mL</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Автоконверсія до mg/L.</p>
-          </div>
-
-          {/* sCrea */}
-          <div>
-            <label className="block mb-1 font-semibold">Креатинін сироватки (S-Cr)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 1.2" value={sCreaStr}
-                     onChange={(e) => setSCreaStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${sCreaStr && !sCreaOk ? "border-red-400" : ""}`} />
-              <select value={sCreaU} onChange={(e) => setSCreaU(e.target.value as SCREA_U)} className="p-2 rounded-lg border">
-                <option>mg/dL</option><option>µmol/L</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">µmol/L → mg/dL (÷88.4).</p>
-          </div>
-
-          {/* uCrea */}
-          <div>
-            <label className="block mb-1 font-semibold">Креатинін сечі (U-Cr)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 120" value={uCreaStr}
-                     onChange={(e) => setUCreaStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${uCreaStr && !uCreaOk ? "border-red-400" : ""}`} />
-              <select value={uCreaU} onChange={(e) => setUCreaU(e.target.value as UCREA_U)} className="p-2 rounded-lg border">
-                <option>mg/dL</option><option>mmol/L</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">mmol/L → mg/dL (÷0.0884).</p>
-          </div>
-
-          {/* eGFR (опційно) */}
-          <div className="md:col-span-2">
-            <label className="block mb-1 font-semibold">eGFR (мл/хв/1.73 м²) — опційно</label>
-            <input inputMode="decimal" placeholder="напр., 60 (можна лишити порожнім)" value={egfrStr}
-                   onChange={(e) => setEgfrStr(sanitizeDecimal(e.target.value))}
-                   className={`p-2 rounded-lg border w-full ${egfrStr && !egfrOk ? "border-red-400" : ""}`} />
-            <p className="text-xs text-gray-500 mt-1">У FeUmod використовується (eGFR || 1).</p>
-          </div>
-        </div>
-
-        {/* Додаткові біохімічні */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <div>
-            <label className="block mb-1 font-semibold">BUN (азот сечовини)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 40" value={bunStr}
-                     onChange={(e) => setBunStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${bunStr && !bunOk ? "border-red-400" : ""}`} />
-              <div className="p-2 rounded-lg border bg-gray-50 text-gray-600">mg/dL</div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block mb-1 font-semibold">Сечовина (Urea)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 60 або 10" value={ureaStr}
-                     onChange={(e) => setUreaStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${ureaStr && !ureaOk ? "border-red-400" : ""}`} />
-              <select value={ureaU} onChange={(e) => setUreaU(e.target.value as UREA_U)} className="p-2 rounded-lg border">
-                <option>mg/dL</option><option>mmol/L</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">mmol/L → mg/dL (×6.0).</p>
-          </div>
-
-          <div>
-            <label className="block mb-1 font-semibold">Сечова кислота (UrAc)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 7.0 або 420" value={uracStr}
-                     onChange={(e) => setUracStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${uracStr && !uracOk ? "border-red-400" : ""}`} />
-              <select value={uracU} onChange={(e) => setUracU(e.target.value as URAC_U)} className="p-2 rounded-lg border">
-                <option>mg/dL</option><option>µmol/L</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">µmol/L → mg/dL (÷59.48).</p>
-          </div>
-        </div>
-
-        {/* Альбумін сечі + діурез */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <label className="block mb-1 font-semibold">Альбумін у сечі (uAlb)</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 30 (mg/L) або 20 (µg/min)" value={uAlbStr}
-                     onChange={(e) => setUAlbStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${uAlbStr && !uAlbOk ? "border-red-400" : ""}`} />
-              <select value={uAlbU} onChange={(e) => setUAlbU(e.target.value as UALB_U)} className="p-2 rounded-lg border">
-                <option>mg/L</option><option>µg/min</option>
-              </select>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Для «µg/min» потрібен добовий діурез (L/добу), щоб конвертувати в mg/L.
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900">
+              Уромодуліновий профіль
+            </h1>
+            <p className="mt-2 max-w-2xl text-gray-600">
+              Введіть <b>sUmod</b> (сироватка), <b>uUmod</b> (сеча), <b>sCrea</b>, <b>uCrea</b>
+              та, бажано, <b>eGFR</b>. Підтримуються десяткові «,» та «.». Формули: <i>FeUmod</i>, <i>FsUmod</i>, <i>uAlb/uUmod</i>, <i>sUmod/sCrea</i>.
             </p>
           </div>
-
-          <div>
-            <label className="block mb-1 font-semibold">Добовий діурез</label>
-            <div className="flex gap-2">
-              <input inputMode="decimal" placeholder="напр., 1.5" value={diuresisStr}
-                     onChange={(e) => setDiuresisStr(sanitizeDecimal(e.target.value))}
-                     className={`p-2 rounded-lg border w-full ${diuresisStr && !diuresisOk ? "border-red-400" : ""}`} />
-              <div className="p-2 rounded-lg border bg-gray-50 text-gray-600">L/добу</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Кнопки */}
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button type="button" onClick={onReset} className="rounded-xl px-5 py-2 bg-gray-100 hover:bg-gray-200">
-            Скинути
-          </button>
-          <button
-            type="button"
-            onClick={onCopy}
-            disabled={
-              FeUmod == null && FsUmod == null &&
-              r_sUmod_sCrea == null && r_uUmod_per_gCr == null &&
-              r_uUmod_uCrea_mgmg == null && r_uUmod_per_eGFR == null &&
-              r_s_over_u == null && r_u_over_s == null &&
-              r_sUmod_BUN == null && r_sUmod_Urea == null && r_sUmod_UrAc == null &&
-              r_uAlb_uUmod == null && excr_umod_mg_day == null && excr_umod_ug_min == null
-            }
-            className={`rounded-xl px-5 py-2 font-semibold transition ${
-              (FeUmod != null || FsUmod != null ||
-                r_sUmod_sCrea != null || r_uUmod_per_gCr != null ||
-                r_uUmod_uCrea_mgmg != null || r_uUmod_per_eGFR != null ||
-                r_s_over_u != null || r_u_over_s != null ||
-                r_sUmod_BUN != null || r_sUmod_Urea != null || r_sUmod_UrAc != null ||
-                r_uAlb_uUmod != null || excr_umod_mg_day != null || excr_umod_ug_min != null)
-                ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500"
-            }`}
+          <Link
+            href="/biomarkers"
+            className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
           >
-            Копіювати
-          </button>
+            <ArrowLeft /> До біомаркерів
+          </Link>
         </div>
-      </div>
 
-      {/* Результати */}
-      <div ref={resRef} className="mt-6 space-y-4" aria-live="polite">
-        <div className="rounded-2xl border shadow bg-white p-4 md:p-6">
-          <div className="text-lg md:text-xl font-bold mb-1">Основні показники</div>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <div className="font-medium">FeUmod</div>
-              <div className="text-sm">
-                <span className="font-mono">{FeUmod != null ? `${FeUmod} %` : "—"}</span>
-                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${pill(toneHigh(FeUmod) as any)}`}>
-                  {FeUmod != null ? "обчислено" : "н/д"}
-                </span>
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                Формула: <span className="font-mono">((uUmod/uCrea) / (sUmod/sCrea)) / (eGFR || 1) × 100</span>
-              </div>
+        {/* Зведена інтерпретація */}
+        <div ref={resRef} className={`mb-6 rounded-2xl border ring-1 p-4 ${toneClasses[summaryTone]}`}>
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-white/60 p-2 text-inherit ring-1 ring-black/5">
+              <Info />
             </div>
             <div>
-              <div className="font-medium">FsUmod</div>
-              <div className="text-sm">
-                <span className="font-mono">{FsUmod != null ? FsUmod : "—"}</span>
-                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${pill(toneLow(FsUmod) as any)}`}>
-                  {FsUmod != null ? "обчислено" : "н/д"}
-                </span>
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                Формула: <span className="font-mono">(sUmod × sCrea) / (uUmod × uCrea) × 100</span>
+              <div className="text-sm font-semibold tracking-wide uppercase">Зведена інтерпретація</div>
+              <div className="mt-1 text-base">{summaryLabel}</div>
+              <div className="mt-1 text-sm opacity-80">
+                Прапорців: {totalFlags} (uUmod&lt;{FLAGS.uUmodLow_mgL} мг/л; FeUmod&lt;{FLAGS.FeUmodLow_pct}%; uAlb/uUmod&gt;{FLAGS.uAlb_uUmodHigh})
               </div>
             </div>
           </div>
+        </div>
 
-          <hr className="my-4" />
+        {/* Прогрес */}
+        <div className="mb-3">
+          <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+            <span>Заповнено: {filled} / 6</span>
+            <span>{progressPct}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+            <div className="h-2 rounded-full bg-blue-600 transition-[width]" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
 
-          <div className="text-lg md:text-xl font-bold mb-1">Розширені індекси</div>
-          <div className="grid md:grid-cols-3 gap-3">
-            <Metric label="sUmod/sCrea (мг/мг)" value={r_sUmod_sCrea} tone={toneHigh(r_sUmod_sCrea)} />
-            <Metric label="uUmod/Cr (мг/г)" value={r_uUmod_per_gCr} tone={toneHigh(r_uUmod_per_gCr)} />
-            <Metric label="uUmod/uCrea (мг/мг)" value={r_uUmod_uCrea_mgmg} tone={toneHigh(r_uUmod_uCrea_mgmg)} />
-            <Metric label="uUmod/eGFR (ум.од.)" value={r_uUmod_per_eGFR} tone={toneHigh(r_uUmod_per_eGFR)} />
-            <Metric label="sUmod/uUmod (×)" value={r_s_over_u} tone={toneHigh(r_s_over_u)} />
-            <Metric label="uUmod/sUmod (×)" value={r_u_over_s} tone={toneHigh(r_u_over_s)} />
-            <Metric label="sUmod/BUN (мг/мг)" value={r_sUmod_BUN} tone={toneHigh(r_sUmod_BUN)} />
-            <Metric label="sUmod/Urea (мг/мг)" value={r_sUmod_Urea} tone={toneHigh(r_sUmod_Urea)} />
-            <Metric label="sUmod/UrAc (мг/мг)" value={r_sUmod_UrAc} tone={toneHigh(r_sUmod_UrAc)} />
-            <Metric label="uAlb/uUmod (мг/мг)" value={r_uAlb_uUmod} tone={toneHigh(r_uAlb_uUmod)} />
-            <Metric label="Екскр. Umod (мг/добу)" value={excr_umod_mg_day} tone={toneHigh(excr_umod_mg_day)} />
-            <Metric label="Екскр. Umod (мкг/хв)" value={excr_umod_ug_min} tone={toneHigh(excr_umod_ug_min)} />
+        {/* Форма */}
+        <div className="rounded-2xl border bg-white p-4 shadow-sm ring-1 ring-black/5">
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* sUmod */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                sUmod <span className="text-xs text-gray-500">({sUmodU})</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={sUmodStr}
+                  onChange={(e) => setSUmodStr(sanitizeDecimal(e.target.value))}
+                  placeholder={sUmodU === 'ng/mL' ? 'напр., 120' : 'напр., 0,12'}
+                  inputMode="decimal"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                />
+                <select
+                  value={sUmodU}
+                  onChange={(e) => setSUmodU(e.target.value as SUmodU)}
+                  className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
+                >
+                  <option>ng/mL</option>
+                  <option>mg/L</option>
+                </select>
+              </div>
+            </div>
+
+            {/* uUmod */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                uUmod <span className="text-xs text-gray-500">({uUmodU})</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={uUmodStr}
+                  onChange={(e) => setUUmodStr(sanitizeDecimal(e.target.value))}
+                  placeholder={uUmodU === 'mg/L' ? 'напр., 25' : 'напр., 25000'}
+                  inputMode="decimal"
+                  className={`w-full rounded-xl border bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 ${
+                    uUmod_mgL != null && uUmod_mgL < FLAGS.uUmodLow_mgL ? 'border-amber-300' : 'border-gray-200 focus:border-blue-500'
+                  }`}
+                />
+                <select
+                  value={uUmodU}
+                  onChange={(e) => setUUmodU(e.target.value as UUmodU)}
+                  className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
+                >
+                  <option>mg/L</option>
+                  <option>ng/mL</option>
+                </select>
+              </div>
+              {uUmod_mgL != null && (
+                <div className="mt-1 text-xs">
+                  <span className={`rounded-full px-2 py-0.5 ring-1 ${uUmod_mgL < FLAGS.uUmodLow_mgL ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'}`}>
+                    {uUmod_mgL < FLAGS.uUmodLow_mgL ? `uUmod низький (<${FLAGS.uUmodLow_mgL} мг/л)` : 'uUmod у межах заданого порогу'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* sCrea */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                sCrea <span className="text-xs text-gray-500">({sCreaU})</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={sCreaStr}
+                  onChange={(e) => setSCreaStr(sanitizeDecimal(e.target.value))}
+                  placeholder={sCreaU === 'µmol/L' ? 'напр., 90' : 'напр., 1,0'}
+                  inputMode="decimal"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                />
+                <select
+                  value={sCreaU}
+                  onChange={(e) => setSCreaU(e.target.value as SCreaU)}
+                  className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
+                >
+                  <option>µmol/L</option>
+                  <option>mg/dL</option>
+                </select>
+              </div>
+            </div>
+
+            {/* uCrea */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                uCrea <span className="text-xs text-gray-500">({uCreaU})</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={uCreaStr}
+                  onChange={(e) => setUCreaStr(sanitizeDecimal(e.target.value))}
+                  placeholder={uCreaU === 'mmol/L' ? 'напр., 10' : 'напр., 120'}
+                  inputMode="decimal"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                />
+                <select
+                  value={uCreaU}
+                  onChange={(e) => setUCreaU(e.target.value as UCreaU)}
+                  className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
+                >
+                  <option>mmol/L</option>
+                  <option>mg/dL</option>
+                </select>
+              </div>
+            </div>
+
+            {/* eGFR */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                eGFR <span className="text-xs text-gray-500">(мл/хв/1.73 м²)</span>
+              </label>
+              <input
+                value={egfrStr}
+                onChange={(e) => setEgfrStr(sanitizeDecimal(e.target.value))}
+                placeholder="напр., 75"
+                inputMode="decimal"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+              />
+              <div className="mt-1 text-xs text-gray-500">Якщо не вказати eGFR, у формулі FeUmod поділ на eGFR не застосовується.</div>
+            </div>
+
+            {/* uAlb (необов’язково, для uAlb/uUmod) */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                uAlb <span className="text-xs text-gray-500">({uAlbU})</span>
+              </label>
+              <input
+                value={uAlbStr}
+                onChange={(e) => setUAlbStr(sanitizeDecimal(e.target.value))}
+                placeholder="напр., 30"
+                inputMode="decimal"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+              />
+            </div>
           </div>
 
-          {/* Пояснення щодо uAlb */}
-          {uAlbU === "µg/min" && uAlbStr && (!diuresisStr || !diuresisOk) && (
-            <div className="mt-3 text-sm text-yellow-900 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              Для перерахунку uAlb з <b>µg/min</b> у <b>mg/L</b> вкажіть добовий діурез (L/добу).
+          {/* Результати */}
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border p-3">
+              <div className="text-sm text-gray-500">sUmod/sCrea</div>
+              <div className="text-lg font-semibold">{toStr(ratio_sUmod_sCrea, 3)}</div>
             </div>
-          )}
+
+            <div className="rounded-xl border p-3">
+              <div className="text-sm text-gray-500">uUmod/uCrea</div>
+              <div className="text-lg font-semibold">{toStr(ratio_uUmod_uCrea, 3)}</div>
+            </div>
+
+            <div className="rounded-xl border p-3">
+              <div className="text-sm text-gray-500">FeUmod (%)</div>
+              <div className="text-lg font-semibold">{toStr(FeUmod_pct, 2)}</div>
+              {FeUmod_pct != null && (
+                <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ring-1 ${FeUmod_pct < FLAGS.FeUmodLow_pct ? 'bg-rose-50 text-rose-800 ring-rose-200' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'}`}>
+                  {FeUmod_pct < FLAGS.FeUmodLow_pct ? `Низький (<${FLAGS.FeUmodLow_pct}%)` : 'В межах порогу'}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border p-3">
+              <div className="text-sm text-gray-500">FsUmod (%)</div>
+              <div className="text-lg font-semibold">{toStr(FsUmod_pct, 2)}</div>
+            </div>
+
+            <div className="rounded-xl border p-3 md:col-span-2">
+              <div className="text-sm text-gray-500">uAlb/uUmod</div>
+              <div className="text-lg font-semibold">{toStr(uAlb_over_uUmod, 2)}</div>
+              {uAlb_over_uUmod != null && (
+                <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ring-1 ${uAlb_over_uUmod > FLAGS.uAlb_uUmodHigh ? 'bg-rose-50 text-rose-800 ring-rose-200' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'}`}>
+                  {uAlb_over_uUmod > FLAGS.uAlb_uUmodHigh ? `Підвищене (> ${FLAGS.uAlb_uUmodHigh})` : 'В межах порогу'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Дії */}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={onCopy}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200"
+            >
+              Копіювати результат
+            </button>
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-gray-200"
+            >
+              Очистити
+            </button>
+          </div>
         </div>
 
-        {/* Attribution */}
-        <div className="rounded-2xl border bg-gray-50 p-4 text-xs text-gray-600">
-          <span className="font-semibold">Примітка.</span>{" "}
-          Калькулятор уромодулінового профілю розроблено на
-          кафедрі нефрології та нирковозамісної терапії
-          НУОЗ України імені П. Л. Шупика.
+        {/* Примітки й атрибуція */}
+        <div className="mt-6 space-y-3">
+          <div className="rounded-2xl border bg-gray-50 p-4 text-sm text-gray-700">
+            <span className="font-semibold">Важливо.</span> Значення залежать від одиниць введення.
+            Для інтерпретації використано пороги-покажчики: uUmod&nbsp;
+            <span className="font-semibold">&lt; {FLAGS.uUmodLow_mgL} мг/л</span>, FeUmod&nbsp;
+            <span className="font-semibold">&lt; {FLAGS.FeUmodLow_pct}%</span>, uAlb/uUmod&nbsp;
+            <span className="font-semibold">&gt; {FLAGS.uAlb_uUmodHigh}</span>.
+          </div>
+
+          <div className="rounded-2xl border bg-gray-50 p-4 text-xs text-gray-600">
+            Результат є довідковим і не замінює консультацію лікаря. Порогові значення можуть
+            відрізнятись між лабораторіями/методиками; за потреби відкоригуйте їх у коді.
+          </div>
+
+          <div className="rounded-2xl border bg-gray-50 p-4 text-xs text-gray-600">
+            <span className="font-semibold">Примітка.</span> Калькулятор уромодулінового профілю
+            розроблено на кафедрі нефрології та нирковозамісної терапії НУОЗ України імені П. Л. Шупика.
+          </div>
         </div>
-      </div>
 
-      <div className="mt-8">
-        <Link href="/biomarkers" className="text-gray-600 hover:text-blue-700">
-          ← Назад до біомаркерів
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-/* ───────── маленький підкомпонент для відображення метрик ───────── */
-function Metric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number | null;
-  tone: "green" | "yellow" | "orange" | "red" | "gray";
-}) {
-  return (
-    <div>
-      <div className="font-medium">{label}</div>
-      <div className="text-sm">
-        <span className="font-mono">{value ?? "—"}</span>
-        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-          tone === "green" ? "bg-green-100 text-green-900"
-          : tone === "yellow" ? "bg-yellow-100 text-yellow-900"
-          : tone === "orange" ? "bg-orange-100 text-orange-900"
-          : tone === "red" ? "bg-red-100 text-red-900"
-          : "bg-gray-100 text-gray-700"
-        }`}>
-          {value != null ? "обчислено" : "н/д"}
-        </span>
+        <div className="mt-8">
+          <Link href="/biomarkers" className="text-gray-600 hover:text-blue-700">
+            ← Назад до біомаркерів
+          </Link>
+        </div>
       </div>
     </div>
   );

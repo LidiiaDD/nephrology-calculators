@@ -1,207 +1,205 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useMemo, useState } from 'react';
 
-/* ───────── Дані опитника ───────── */
-const GAD7_QUESTIONS = [
-  "Відчуття нервозності або занепокоєння",
-  "Нездатність зупинити/контролювати тривогу",
-  "Часті труднощі з розслабленням",
-  "Занадто сильне занепокоєння про різні речі",
-  "Важко заспокоїтись",
-  "Нетерплячість або легке роздратування",
-  "Страх, що щось погане трапиться",
-];
+type Score = 0 | 1 | 2 | 3;
+type Ans = Score | null;
 
-const OPTIONS = [
-  { label: "0 — Взагалі не турбує", points: 0 },
-  { label: "1 — Кілька днів", points: 1 },
-  { label: "2 — Більше половини днів", points: 2 },
-  { label: "3 — Майже кожного дня", points: 3 },
-];
+/** ДЕФОЛТНІ тексти пунктів GAD-7 (UA) */
+const DEFAULT_TEXTS = [
+  'Відчуття нервозності, тривоги або “на межі зриву”',
+  'Нездатність зупинити або контролювати хвилювання',
+  'Надмірне занепокоєння щодо різних справ',
+  'Складність розслабитися',
+  'Неспокійність, неможливість всидіти на місці',
+  'Легко дратуєтесь або стаєте нетерплячими',
+  'Відчуття страху, що може статися щось жахливе',
+] as const;
 
-const pill = (tone: "green" | "yellow" | "orange" | "red") =>
-  tone === "green"
-    ? "bg-green-100 text-green-900"
-    : tone === "yellow"
-    ? "bg-yellow-100 text-yellow-900"
-    : tone === "orange"
-    ? "bg-orange-100 text-orange-900"
-    : "bg-red-100 text-red-900";
+/** ДЕФОЛТНІ підписи для варіантів відповіді */
+const DEFAULT_OPTION_LABELS = [
+  'Ніколи',
+  'Кілька днів',
+  'Більше ніж половину днів',
+  'Майже щодня',
+] as const;
 
-const LS_KEY = "gad7_v3";
-
-/* ───────── Компонент ───────── */
-export default function GAD7Page() {
-  // null = відповідь не обрана (щоб нічого не було заповнено за замовчуванням)
-  const [answers, setAnswers] = useState<Array<number | null>>(
-    Array(GAD7_QUESTIONS.length).fill(null)
-  );
-  const [touched, setTouched] = useState(false);
-
-  const resRef = useRef<HTMLDivElement | null>(null);
-  const scrolledOnce = useRef(false);
-
-  // Відновлення/збереження
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.answers)) setAnswers(parsed.answers);
-      }
-    } catch {}
-  }, []);
-  useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ answers }));
-  }, [answers]);
-
-  const setAns = (idx: number, val: number) => {
-    setTouched(true);
-    setAnswers((prev) => {
-      const copy = [...prev];
-      copy[idx] = val;
-      return copy;
-    });
+/** Мапа рівнів тяжкості → стилі/пояснення */
+function severityMeta(total: number) {
+  if (total >= 15)
+    return {
+      label: 'Виражена тривога',
+      badge: 'bg-red-100 text-red-800 ring-red-200',
+      border: 'border-red-300',
+      bg: 'bg-red-50',
+      advice: 'Потрібна клінічна оцінка та, ймовірно, направлення/лікування.',
+    };
+  if (total >= 10)
+    return {
+      label: 'Помірна тривога',
+      badge: 'bg-orange-100 text-orange-800 ring-orange-200',
+      border: 'border-orange-300',
+      bg: 'bg-orange-50',
+      advice: 'Бажана клінічна оцінка; розглянути втручання.',
+    };
+  if (total >= 5)
+    return {
+      label: 'Легка тривога',
+      badge: 'bg-yellow-100 text-yellow-800 ring-yellow-200',
+      border: 'border-yellow-300',
+      bg: 'bg-yellow-50',
+      advice: 'Спостереження, коротке консультування, самодопомога.',
+    };
+  return {
+    label: 'Мінімальна/відсутня',
+    badge: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+    border: 'border-emerald-300',
+    bg: 'bg-emerald-50',
+    advice: 'Зазвичай специфічне втручання не потрібне.',
   };
+}
 
-  const totalScore = useMemo(
-    () => answers.reduce((sum, v) => sum + (v ?? 0), 0),
+export default function GAD7Page() {
+  /** відповіді (7 пунктів), спочатку порожні */
+  const [answers, setAnswers] = useState<Ans[]>(Array(7).fill(null));
+  /** тексти пунктів/варіантів — завжди показуємо; при наявності items.local тихо підміняємо */
+  const [itemTexts, setItemTexts] = useState<readonly string[]>(DEFAULT_TEXTS);
+  const [optionLabels, setOptionLabels] =
+    useState<readonly string[]>(DEFAULT_OPTION_LABELS);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const mod = await import('./items.local'); // опційний локальний файл
+        if (Array.isArray((mod as any).G_TEXTS) && (mod as any).G_TEXTS.length >= 7) {
+          setItemTexts((mod as any).G_TEXTS);
+        }
+        if (
+          Array.isArray((mod as any).OPTION_LABELS) &&
+          (mod as any).OPTION_LABELS.length >= 4
+        ) {
+          setOptionLabels((mod as any).OPTION_LABELS);
+        }
+      } catch {
+        /* файлу може не бути — це ок */
+      }
+    })();
+  }, []);
+
+  const total = useMemo(
+    () => answers.reduce<number>((s, v) => s + (v ?? 0), 0),
+    [answers]
+  );
+  const meta = severityMeta(total);
+  const unanswered = useMemo(
+    () => answers.filter((a) => a === null).length,
     [answers]
   );
 
-  const answeredCount = answers.filter((v) => v != null).length;
-  const allAnswered = answeredCount === GAD7_QUESTIONS.length;
-
-  // Автоскрол, коли вперше все заповнили
-  useEffect(() => {
-    if (allAnswered && !scrolledOnce.current) {
-      resRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      scrolledOnce.current = true;
-    }
-  }, [allAnswered]);
-
-  // Інтерпретація
-  function interpret(score: number) {
-    if (score <= 4) return { label: "Мінімальна тривога", tone: "green" as const };
-    if (score <= 9) return { label: "Легка тривога", tone: "yellow" as const };
-    if (score <= 14) return { label: "Помірна тривога", tone: "orange" as const };
-    return { label: "Виражена тривога", tone: "red" as const };
-  }
-  const interp = interpret(totalScore);
-
-  const onCopy = async () => {
-    if (!allAnswered) return;
-    const txt = `GAD-7: ${totalScore}/21 — ${interp.label}`;
-    try {
-      await navigator.clipboard.writeText(txt);
-      alert("Скопійовано у буфер обміну.");
-    } catch {
-      alert(txt);
-    }
+  const onPick = (idx: number, val: Score) => {
+    setAnswers((prev) => {
+      const next = prev.slice();
+      next[idx] = val;
+      return next;
+    });
   };
 
-  const onReset = () => {
-    setAnswers(Array(GAD7_QUESTIONS.length).fill(null));
-    setTouched(false);
-    scrolledOnce.current = false;
-  };
+  const onReset = () => setAnswers(Array(7).fill(null));
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-2">GAD-7 — Оцінка генералізованої тривоги</h1>
-      <p className="text-gray-600 mb-4">
-        Оберіть варіанти для кожного пункту (за останні 2 тижні). Підрахунок іде автоматично — результат нижче.
-      </p>
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <header className="mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-3xl font-bold">GAD-7 — шкала генералізованої тривоги</h1>
+        <button
+          onClick={onReset}
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+        >
+          Скинути відповіді
+        </button>
+      </header>
 
-      {/* Прогрес */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-          <span>Заповнено: {answeredCount} / {GAD7_QUESTIONS.length}</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 transition-all"
-            style={{ width: `${(answeredCount / GAD7_QUESTIONS.length) * 100 || 0}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Форма */}
-      <div className="bg-white rounded-2xl shadow p-4 md:p-6 space-y-5">
-        {GAD7_QUESTIONS.map((q, idx) => {
-          const sel = answers[idx];
-          const missing = touched && sel == null;
-          return (
-            <div key={idx} className={missing ? "border-l-4 border-red-400 pl-3" : ""}>
-              <div className="font-medium mb-2">{idx + 1}. {q}</div>
-              <div className="flex flex-wrap gap-4">
-                {OPTIONS.map((opt, i) => (
-                  <label key={i} className="inline-flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name={`q${idx}`}
-                      checked={sel === i}
-                      onChange={() => setAns(idx, i)}
-                    />
-                    <span className="text-sm">{opt.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onReset}
-            className="rounded-xl px-5 py-2 bg-gray-100 hover:bg-gray-200"
-          >
-            Скинути
-          </button>
-          <button
-            type="button"
-            onClick={onCopy}
-            disabled={!allAnswered}
-            className={`rounded-xl px-5 py-2 font-semibold transition ${
-              allAnswered ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500"
-            }`}
-            title={allAnswered ? "Скопіювати підсумок" : "Заповніть усі пункти, щоб скопіювати"}
-          >
-            Копіювати
-          </button>
-        </div>
-      </div>
-
-      {/* Результат */}
-      <div ref={resRef} className="mt-6" aria-live="polite">
-        <div className="rounded-2xl border shadow bg-white p-4 md:p-6">
-          <div className="text-lg md:text-xl font-bold">
-            Сумарний бал GAD-7:&nbsp;
-            <span className="font-mono">{totalScore}</span> / 21
+      {/* Результат — кольорова картка (як в інших анкетах) */}
+      <section
+        className={`mb-8 rounded-2xl border ${meta.border} ${meta.bg} p-5`}
+        aria-live="polite"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-sm text-gray-600">Сума балів</div>
+            <div className="text-5xl font-semibold leading-none">{total}</div>
           </div>
-
-          <div className="mt-2 inline-flex items-center gap-2 text-sm">
-            <span className={`px-3 py-1 rounded-full ${pill(interp.tone)}`}>{interp.label}</span>
-            {!allAnswered && (
-              <span className="text-gray-500">(заповніть усі пункти для коректної інтерпретації)</span>
+          <div className="text-right">
+            <div
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm ring-1 ring-inset ${meta.badge}`}
+            >
+              {meta.label}
+            </div>
+            <div className="mt-1 text-sm text-gray-700">{meta.advice}</div>
+            {unanswered > 0 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Не відповіли на {unanswered} з 7 пунктів.
+              </div>
             )}
           </div>
-
-          <div className="mt-3 text-xs text-gray-500">
-            Примітка: ≥10 балів часто розглядають як клінічно значущий рівень тривоги; скринінг не є діагнозом і
-            вимагає клінічного підтвердження.
-          </div>
         </div>
+
+        {/* прогрес-бар до 21 */}
+        <div className="mt-4 h-2 w-full rounded-full bg-white/60">
+          <div
+            className="h-2 rounded-full bg-black/20 transition-[width]"
+            style={{ width: `${(total / 21) * 100}%` }}
+            aria-hidden
+          />
+        </div>
+      </section>
+
+      {/* Пункти опитувальника */}
+      <div className="space-y-5">
+        {itemTexts.slice(0, 7).map((text, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-gray-200 p-4 hover:bg-gray-50/40"
+          >
+            <div className="mb-3 flex items-start gap-2">
+              <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-900 text-xs font-semibold text-white">
+                {i + 1}
+              </span>
+              <p className="text-base font-medium">{text}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {[0, 1, 2, 3].map((v) => {
+                const checked = answers[i] === (v as Score);
+                return (
+                  <label
+                    key={v}
+                    className={`cursor-pointer select-none rounded-lg border px-3 py-2 text-sm transition
+                    ${
+                      checked
+                        ? 'border-gray-900 bg-gray-900 text-white'
+                        : 'border-gray-300 bg-white hover:border-gray-400'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`q-${i}`}
+                      value={v}
+                      className="sr-only"
+                      checked={checked}
+                      onChange={() => onPick(i, v as Score)}
+                    />
+                    {optionLabels[v as 0 | 1 | 2 | 3]} <span className="opacity-70">({v})</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div className="mt-8">
-        <Link href="/mental" className="text-gray-600 hover:text-blue-700">
-          ← Назад до психоемоційного стану
-        </Link>
-      </div>
+      <footer className="mt-8 text-sm text-gray-500">
+        Інтерпретація: 0–4 мінімальна, 5–9 легка, 10–14 помірна, 15–21 виражена тривога.
+      </footer>
     </div>
   );
 }

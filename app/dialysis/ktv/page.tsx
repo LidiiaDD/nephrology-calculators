@@ -1,294 +1,302 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from 'react';
 
-/* ───────── helpers ───────── */
-const sanitizeDecimal = (s: string) => (s ?? "").replace(/[^\d.,-]/g, "");
-const toNum = (s: string): number | null => {
-  const t = (s ?? "").trim();
-  if (!t) return null;
-  const v = parseFloat(t.replace(",", "."));
+type Sex = 'female' | 'male';
+type VMethod = 'manual' | 'weight' | 'watson';
+
+function parseNum(s: string): number | null {
+  if (!s) return null;
+  const v = parseFloat(s.replace(',', '.'));
   return Number.isFinite(v) ? v : null;
-};
-const inRange = (n: number | null, min: number, max: number) =>
-  n != null && n >= min && n <= max;
-
-const pill = (t: "green" | "yellow" | "orange" | "red") =>
-  t === "green"
-    ? "bg-green-100 text-green-900"
-    : t === "yellow"
-    ? "bg-yellow-100 text-yellow-900"
-    : t === "orange"
-    ? "bg-orange-100 text-orange-900"
-    : "bg-red-100 text-red-900";
-
-function ktvBand(x: number) {
-  if (x >= 1.2) return { label: "Ціль досягнута (≥1.2)", tone: "green" as const };
-  if (x >= 1.0) return { label: "Погранично (1.0–1.19)", tone: "yellow" as const };
-  if (x >= 0.8) return { label: "Низька доза (0.8–0.99)", tone: "orange" as const };
-  return { label: "Недостатньо (<0.8)", tone: "red" as const };
 }
-function urrBand(p: number) {
-  if (p >= 65) return { label: "URR ≥65% (ок)", tone: "green" as const };
-  if (p >= 60) return { label: "URR 60–64% (погранично)", tone: "yellow" as const };
-  return { label: "URR <60% (недостатньо)", tone: "red" as const };
-}
+const fmt = (n: number, dp = 2) => n.toLocaleString('uk-UA', { maximumFractionDigits: dp, minimumFractionDigits: dp });
 
-const LS_KEY = "ktv_daugirdas_v3";
-
-/* ───────── page ───────── */
 export default function KtVPage() {
-  // зберігаємо РЯДКИ → поля можуть бути порожні
-  const [preStr, setPreStr] = useState("");
-  const [postStr, setPostStr] = useState("");
-  const [tStr, setTStr] = useState("");   // тривалість (год)
-  const [ufStr, setUfStr] = useState(""); // ультрафільтрація (л)
-  const [wStr, setWStr] = useState("");   // маса тіла (кг)
+  // уникаємо hydration-mismatch — малюємо після монтування
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  // відновлення/збереження
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const v = JSON.parse(raw);
-        setPreStr(v.preStr ?? "");
-        setPostStr(v.postStr ?? "");
-        setTStr(v.tStr ?? "");
-        setUfStr(v.ufStr ?? "");
-        setWStr(v.wStr ?? "");
+  // Базові вхідні поля (рядкові, на старті порожні)
+  const [preStr, setPreStr]   = useState('');  // ммоль/л
+  const [postStr, setPostStr] = useState('');  // ммоль/л
+  const [tStr, setTStr]       = useState('');  // год
+  const [ufStr, setUfStr]     = useState('');  // л
+
+  // Метод визначення V
+  const [vMethod, setVMethod] = useState<VMethod>('manual');
+
+  // V вручну (л)
+  const [vStr, setVStr] = useState('');
+
+  // Оцінка за масою (кг) — потребує статі
+  const [sex, setSex] = useState<Sex>('female');
+  const [weightStr, setWeightStr] = useState('');
+
+  // Watson: стать + вік + зріст + маса
+  const [ageStr, setAgeStr]       = useState('');
+  const [heightStr, setHeightStr] = useState(''); // см
+
+  // Числові значення
+  const pre = useMemo(() => parseNum(preStr), [preStr]);
+  const post = useMemo(() => parseNum(postStr), [postStr]);
+  const t = useMemo(() => parseNum(tStr), [tStr]);       // год
+  const uf = useMemo(() => parseNum(ufStr), [ufStr]);    // л
+  const vManual = useMemo(() => parseNum(vStr), [vStr]); // л
+
+  const weight = useMemo(() => parseNum(weightStr), [weightStr]); // кг
+  const age    = useMemo(() => parseNum(ageStr), [ageStr]);       // роки
+  const height = useMemo(() => parseNum(heightStr), [heightStr]); // см
+
+  // Обчислення V (л)
+  const V = useMemo(() => {
+    if (vMethod === 'manual') {
+      return (vManual && vManual > 0) ? vManual : null;
+    }
+    if (vMethod === 'weight') {
+      if (!weight || weight <= 0) return null;
+      // дуже швидка оцінка: TBW ≈ 0.49*female, 0.58*male (в літрах)
+      const k = sex === 'male' ? 0.58 : 0.49;
+      return weight * k;
+    }
+    // Watson (літри)
+    if (vMethod === 'watson') {
+      if (!weight || !height || weight <= 0 || height <= 0) return null;
+      if (sex === 'male') {
+        // Male: V = 2.447 - 0.09516*age + 0.1074*height + 0.3362*weight
+        const a = age ?? 0;
+        return 2.447 - 0.09516 * a + 0.1074 * height + 0.3362 * weight;
+      } else {
+        // Female: V = -2.097 + 0.1069*height + 0.2466*weight
+        return -2.097 + 0.1069 * height + 0.2466 * weight;
       }
-    } catch {}
-  }, []);
-  useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ preStr, postStr, tStr, ufStr, wStr }));
-  }, [preStr, postStr, tStr, ufStr, wStr]);
-
-  // парсинг + валідація
-  const pre = toNum(preStr);     // ммоль/л
-  const post = toNum(postStr);   // ммоль/л
-  const t = toNum(tStr);         // год
-  const uf = toNum(ufStr);       // л
-  const w = toNum(wStr);         // кг
-
-  const preOk = inRange(pre, 1, 50);
-  const postOk = inRange(post, 0.1, 50) && (pre != null ? post! < pre! : true);
-  const tOk = inRange(t, 1, 8);
-  const ufOk = inRange(uf, 0, 10);
-  const wOk = inRange(w, 20, 250);
-
-  const ready = preOk && postOk && tOk && ufOk && wOk;
-
-  // розрахунки
-  const R = ready ? post! / pre! : null;                // post/pre
-  const lnArg = ready ? R! - 0.008 * t! : null;         // аргумент для ln
-  const lnOk = lnArg != null && lnArg > 0;              // має бути >0
-
-  const spKtv = useMemo(() => {
-    if (!ready || !lnOk) return null;
-    // Daugirdas II: spKt/V = -ln(R - 0.008*t) + (4 - 3.5*R) * UF/W
-    const lnPart = -Math.log(lnArg!);
-    const ufPart = (4 - 3.5 * R!) * (uf! / w!);
-    const val = lnPart + ufPart;
-    return +(val.toFixed(2));
-  }, [ready, lnOk, lnArg, R, uf, w]);
-
-  const eKtv = useMemo(() => {
-    if (spKtv == null || !tOk) return null;
-    // приблизна корекція до eKt/V (Tattersall): eKt/V ≈ spKt/V − 0.6·spKt/V/t + 0.03
-    const val = spKtv - (0.6 * spKtv) / (t as number) + 0.03;
-    return +val.toFixed(2);
-  }, [spKtv, tOk, t]);
-
-  const urr = useMemo(() => {
-    if (!ready) return null;
-    const p = (1 - (post! / pre!)) * 100;
-    return +p.toFixed(1);
-  }, [ready, pre, post]);
-
-  // автоскрол, коли зʼявився результат
-  const resRef = useRef<HTMLDivElement | null>(null);
-  const scrolledOnce = useRef(false);
-  useEffect(() => {
-    if (spKtv != null && !scrolledOnce.current) {
-      resRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      scrolledOnce.current = true;
     }
-  }, [spKtv]);
+    return null;
+  }, [vMethod, vManual, weight, height, age, sex]);
 
-  // прогрес-бар
-  const progress = useMemo(
-    () => [preStr, postStr, tStr, ufStr, wStr].filter((s) => (s ?? "").trim()).length,
-    [preStr, postStr, tStr, ufStr, wStr]
-  );
+  // Основні показники
+  const calc = useMemo(() => {
+    let R: number | null = null;
+    let urr: number | null = null;
+    let ktvNoUF: number | null = null;
+    let ktvUF: number | null = null;
 
-  const onReset = () => {
-    setPreStr(""); setPostStr(""); setTStr(""); setUfStr(""); setWStr("");
-    scrolledOnce.current = false;
-  };
+    if (pre !== null && post !== null && pre > 0 && post >= 0 && post <= pre) {
+      R = post / pre;
+      urr = (1 - R) * 100;
 
-  const onCopy = async () => {
-    if (spKtv == null) return;
-    const parts = [
-      `spKt/V ${spKtv}`,
-      ...(eKtv != null ? [`eKt/V ${eKtv}`] : []),
-      ...(urr != null ? [`URR ${urr}%`] : []),
-    ];
-    const txt = parts.join("; ");
-    try {
-      await navigator.clipboard.writeText(txt);
-      alert("Скопійовано в буфер обміну.");
-    } catch {
-      alert(txt);
+      if (t !== null) {
+        const expr = R - 0.008 * t; // t у годинах
+        if (expr > 0) {
+          ktvNoUF = -Math.log(expr);
+          if (uf !== null && V !== null && V > 0) {
+            // Daugirdas II: + (4 - 3.5*R) * (UF/V)
+            ktvUF = ktvNoUF + (4 - 3.5 * R) * (uf / V);
+          } else {
+            ktvUF = ktvNoUF;
+          }
+        }
+      }
     }
-  };
+    return { R, urr, ktvNoUF, ktvUF };
+  }, [pre, post, t, uf, V]);
+
+  if (!mounted) return null;
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4">
-      <h2 className="text-3xl font-bold mb-2">Kt/V — адекватність гемодіалізу (Daugirdas II)</h2>
-      <p className="text-gray-600 mb-4">
-        Формула: <span className="font-mono">spKt/V = −ln(R − 0.008·t) + (4 − 3.5·R) · (UF/W)</span>, де R = пост/перед,
-        <b> t</b> — година, <b>UF</b> — ультрафільтрація (л), <b>W</b> — маса (кг). Роздільник: «,» або «.»
-      </p>
+    <main className="mx-auto max-w-5xl p-6">
+      <h1 className="text-3xl font-bold mb-6">K<span className="lowercase">t</span>/V (гемодіаліз)</h1>
 
-      {/* Прогрес */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-          <span>Заповнено: {progress} / 5</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div className="h-full bg-blue-500 transition-all" style={{ width: `${(progress / 5) * 100 || 0}%` }} />
-        </div>
-      </div>
-
-      {/* Форма */}
-      <div className="bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <label className="block mb-1 font-semibold">Сечовина перед діалізом (ммоль/л)</label>
+      {/* Вхідні дані */}
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-3">Вхідні дані</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex flex-col gap-1">
+            <span>Сечовина до діалізу (ммоль/л)</span>
             <input
               inputMode="decimal"
-              placeholder="напр., 20.0"
               value={preStr}
-              onChange={(e) => setPreStr(sanitizeDecimal(e.target.value))}
-              className={`p-2 rounded-lg border w-full ${preStr && !preOk ? "border-red-400" : ""}`}
+              onChange={e => setPreStr(e.target.value)}
+              placeholder="наприклад, 18.5"
+              className="rounded border px-3 py-2"
             />
-          </div>
-          <div>
-            <label className="block mb-1 font-semibold">Сечовина після діалізу (ммоль/л)</label>
+            <small className="text-gray-500">Десятковий роздільник «,» або «.»</small>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Сечовина після діалізу (ммоль/л)</span>
             <input
               inputMode="decimal"
-              placeholder="напр., 5.2"
               value={postStr}
-              onChange={(e) => setPostStr(sanitizeDecimal(e.target.value))}
-              className={`p-2 rounded-lg border w-full ${postStr && !postOk ? "border-red-400" : ""}`}
+              onChange={e => setPostStr(e.target.value)}
+              placeholder="наприклад, 6.2"
+              className="rounded border px-3 py-2"
             />
-          </div>
-          <div>
-            <label className="block mb-1 font-semibold">Тривалість сеансу (год)</label>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Тривалість сеансу (год)</span>
             <input
               inputMode="decimal"
-              placeholder="напр., 4"
               value={tStr}
-              onChange={(e) => setTStr(sanitizeDecimal(e.target.value))}
-              className={`p-2 rounded-lg border w-full ${tStr && !tOk ? "border-red-400" : ""}`}
+              onChange={e => setTStr(e.target.value)}
+              placeholder="наприклад, 4"
+              className="rounded border px-3 py-2"
             />
-          </div>
-          <div>
-            <label className="block mb-1 font-semibold">Ультрафільтрація (л)</label>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Ультрафільтрація, UF (л)</span>
             <input
               inputMode="decimal"
-              placeholder="напр., 2.0"
               value={ufStr}
-              onChange={(e) => setUfStr(sanitizeDecimal(e.target.value))}
-              className={`p-2 rounded-lg border w-full ${ufStr && !ufOk ? "border-red-400" : ""}`}
+              onChange={e => setUfStr(e.target.value)}
+              placeholder="наприклад, 2.0"
+              className="rounded border px-3 py-2"
             />
-          </div>
-          <div>
-            <label className="block mb-1 font-semibold">Маса тіла (кг)</label>
+            <small className="text-gray-500">Для врахування члена UF/V потрібно мати V (літри) нижче.</small>
+          </label>
+        </div>
+      </section>
+
+      {/* Об'єм розподілу V */}
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-3">V — об’єм розподілу сечовини</h2>
+
+        <div className="mb-3 flex flex-wrap gap-3">
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="vmethod" checked={vMethod==='manual'} onChange={() => setVMethod('manual')} />
+            <span>Ввести вручну</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="vmethod" checked={vMethod==='weight'} onChange={() => setVMethod('weight')} />
+            <span>Оцінити за масою</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="vmethod" checked={vMethod==='watson'} onChange={() => setVMethod('watson')} />
+            <span>Watson (стать+вік+зріст+маса)</span>
+          </label>
+        </div>
+
+        {/* MANUAL */}
+        <div className={vMethod==='manual' ? 'grid gap-4 md:grid-cols-2' : 'hidden'}>
+          <label className="flex flex-col gap-1">
+            <span>V (літри)</span>
             <input
               inputMode="decimal"
-              placeholder="напр., 70"
-              value={wStr}
-              onChange={(e) => setWStr(sanitizeDecimal(e.target.value))}
-              className={`p-2 rounded-lg border w-full ${wStr && !wOk ? "border-red-400" : ""}`}
+              value={vStr}
+              onChange={e => setVStr(e.target.value)}
+              placeholder="наприклад, 32"
+              className="rounded border px-3 py-2"
             />
-          </div>
+          </label>
         </div>
 
-        {/* Діагностика формули */}
-        {ready && !lnOk && (
-          <div className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-            Неможливо обчислити: вираз <span className="font-mono">R − 0.008·t</span> має бути &gt; 0.
-            Перевірте дані (надто мала постдіалізна сечовина або завелика тривалість).
-          </div>
-        )}
-
-        {ready && lnOk && (
-          <div className="text-xs text-gray-600">
-            R = {R!.toFixed(3)}; аргумент ln = {(lnArg as number).toFixed(3)}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button type="button" onClick={onReset} className="rounded-xl px-5 py-2 bg-gray-100 hover:bg-gray-200">
-            Скинути
-          </button>
-          <button
-            type="button"
-            onClick={onCopy}
-            disabled={spKtv == null}
-            className={`rounded-xl px-5 py-2 font-semibold transition ${
-              spKtv != null ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500"
-            }`}
-            title={spKtv != null ? "Скопіювати підсумок" : "Заповніть усі поля коректно"}
-          >
-            Копіювати
-          </button>
+        {/* WEIGHT */}
+        <div className={vMethod==='weight' ? 'grid gap-4 md:grid-cols-3' : 'hidden'}>
+          <label className="flex items-center gap-2">
+            <span className="min-w-24">Стать</span>
+            <select className="rounded border px-3 py-2" value={sex} onChange={e => setSex(e.target.value as Sex)}>
+              <option value="female">Жінка</option>
+              <option value="male">Чоловік</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 md:col-span-2">
+            <span>Маса тіла (кг)</span>
+            <input
+              inputMode="decimal"
+              value={weightStr}
+              onChange={e => setWeightStr(e.target.value)}
+              placeholder="наприклад, 70"
+              className="rounded border px-3 py-2"
+            />
+            <small className="text-gray-500">
+              Оцінка TBW: {sex==='male' ? '0.58' : '0.49'} × маса (кг), в літрах.
+              {weight && <> Приблизно V ≈ <b>{fmt((sex==='male'?0.58:0.49)*weight, 1)}</b> л.</>}
+            </small>
+          </label>
         </div>
-      </div>
+
+        {/* WATSON */}
+        <div className={vMethod==='watson' ? 'grid gap-4 md:grid-cols-4' : 'hidden'}>
+          <label className="flex items-center gap-2">
+            <span className="min-w-24">Стать</span>
+            <select className="rounded border px-3 py-2" value={sex} onChange={e => setSex(e.target.value as Sex)}>
+              <option value="female">Жінка</option>
+              <option value="male">Чоловік</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Вік (роки)</span>
+            <input
+              inputMode="numeric"
+              value={ageStr}
+              onChange={e => setAgeStr(e.target.value)}
+              placeholder="наприклад, 60"
+              className="rounded border px-3 py-2"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Зріст (см)</span>
+            <input
+              inputMode="numeric"
+              value={heightStr}
+              onChange={e => setHeightStr(e.target.value)}
+              placeholder="наприклад, 170"
+              className="rounded border px-3 py-2"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Маса (кг)</span>
+            <input
+              inputMode="decimal"
+              value={weightStr}
+              onChange={e => setWeightStr(e.target.value)}
+              placeholder="наприклад, 70"
+              className="rounded border px-3 py-2"
+            />
+          </label>
+
+          <div className="md:col-span-4 text-sm text-gray-600">
+            {V !== null && Number.isFinite(V) ? <>Орієнтовний V (Watson): <b>{fmt(V,1)} л</b>.</> : 'Введіть зріст і масу; вік опційний (впливає у чоловіків).'}
+          </div>
+        </div>
+      </section>
 
       {/* Результат */}
-      <div ref={resRef} className="mt-6" aria-live="polite">
-        <div className="rounded-2xl border shadow bg-white p-4 md:p-6">
-          <div className="text-lg md:text-xl font-bold">
-            spKt/V:&nbsp;<span className="font-mono">{spKtv ?? "—"}</span>
-          </div>
-
-          {spKtv != null ? (
-            <>
-              <div className="mt-2 inline-flex items-center gap-2 text-sm">
-                <span className={`px-3 py-1 rounded-full ${pill(ktvBand(spKtv).tone)}`}>{ktvBand(spKtv).label}</span>
-              </div>
-
-              <div className="mt-3 text-gray-700">
-                eKt/V (приблизно): <span className="font-mono">{eKtv ?? "—"}</span>
-              </div>
-
-              <div className="mt-1 text-gray-700">
-                URR:&nbsp;<span className="font-mono">{urr}%</span>{" "}
-                <span className={`ml-2 px-2 py-0.5 rounded-full text-sm ${pill(urrBand(urr!).tone)}`}>
-                  {urrBand(urr!).label}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="mt-2 text-sm text-gray-600">Заповніть усі поля для автоматичного розрахунку.</div>
-          )}
-
-          <div className="mt-3 text-xs text-gray-500">
-            Примітка: пороги орієнтовні; інтерпретація залежить від частоти діалізу, розподілу сечовини, часу забору
-            зразків тощо. eKt/V наведено за простою корекцією і може відрізнятися від формального моделювання.
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded border p-4">
+          <div className="text-sm text-gray-500">URR</div>
+          <div className="text-4xl font-bold">
+            {calc.urr === null ? '—' : `${Math.round(calc.urr)}%`}
           </div>
         </div>
-      </div>
 
-      <div className="mt-8">
-        <Link href="/dialysis" className="text-gray-600 hover:text-blue-700">
-          ← Назад до діалізу
-        </Link>
-      </div>
-    </div>
+        <div className="rounded border p-4">
+          <div className="text-sm text-gray-500">Kt/V (Daugirdas II, без UF/V)</div>
+          <div className="text-4xl font-bold">
+            {calc.ktvNoUF === null ? '—' : fmt(calc.ktvNoUF, 2)}
+          </div>
+        </div>
+
+        <div className="rounded border p-4">
+          <div className="text-sm text-gray-500">Kt/V (з урахуванням UF/V)</div>
+          <div className="text-4xl font-bold">
+            {calc.ktvUF === null ? '—' : fmt(calc.ktvUF, 2)}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            Формула: Kt/V = −ln(R − 0.008·t) + (4 − 3.5·R)·(UF/V)
+          </div>
+        </div>
+      </section>
+
+      <p className="mt-6 text-sm text-gray-500">
+        Примітка: V — загальна вода організму (TBW). Для приблизної оцінки без зросту/віку обери «за масою».
+        Для точнішого розрахунку скористайся Watson (потрібні стать, зріст та маса; вік впливає у чоловіків).
+      </p>
+    </main>
   );
 }
-

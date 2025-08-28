@@ -282,7 +282,7 @@ export default function SF36Page() {
             return (
               <div
                 key={it.no}
-                ref={(el) => (refs.current[it.no] = el)}
+                ref={(el) => { refs.current[it.no] = el; }}
                 className={cx(
                   "rounded-2xl border bg-white p-4 transition",
                   empty ? "border-red-300 bg-red-50/50" : "border-gray-200"

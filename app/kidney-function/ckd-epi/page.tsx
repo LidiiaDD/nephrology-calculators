@@ -26,14 +26,15 @@ function toNumberOrNaN(s: string): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
-// ---- формули ----
-function egfrCkdEpi2009(scrMgDl: number, age: number, sex: Sex) {
+/* ── Формули ───────────────────────────────────────────── */
+function egfrCkdEpi2009(scrMgDl: number, age: number, sex: Sex, isBlack: boolean) {
   const k = sex === 'Жіноча' ? 0.7 : 0.9;
   const a = sex === 'Жіноча' ? -0.329 : -0.411;
   const min = Math.min(scrMgDl / k, 1);
   const max = Math.max(scrMgDl / k, 1);
   const sexFactor = sex === 'Жіноча' ? 1.018 : 1;
-  return 141 * Math.pow(min, a) * Math.pow(max, -1.209) * Math.pow(0.993, age) * sexFactor;
+  const raceFactor = isBlack ? 1.159 : 1; // расовий коефіцієнт CKD-EPI 2009
+  return 141 * Math.pow(min, a) * Math.pow(max, -1.209) * Math.pow(0.993, age) * sexFactor * raceFactor;
 }
 function egfrCkdEpi2021(scrMgDl: number, age: number, sex: Sex) {
   const k = sex === 'Жіноча' ? 0.7 : 0.9;
@@ -41,13 +42,13 @@ function egfrCkdEpi2021(scrMgDl: number, age: number, sex: Sex) {
   const min = Math.min(scrMgDl / k, 1);
   const max = Math.max(scrMgDl / k, 1);
   const sexFactor = sex === 'Жіноча' ? 1.012 : 1;
-  return 142 * Math.pow(min, a) * Math.pow(max, -1.200) * Math.pow(0.9938, age) * sexFactor;
+  return 142 * Math.pow(min, a) * Math.pow(max, -1.200) * Math.pow(0.9938, age) * sexFactor; // без race
 }
 function egfrCkdEpi2012Cys(scys: number, age: number, sex: Sex) {
   const min = Math.min(scys / 0.8, 1);
   const max = Math.max(scys / 0.8, 1);
   const sexFactor = sex === 'Жіноча' ? 0.932 : 1;
-  return 133 * Math.pow(min, -0.499) * Math.pow(max, -1.328) * Math.pow(0.996, age) * sexFactor;
+  return 133 * Math.pow(min, -0.499) * Math.pow(max, -1.328) * Math.pow(0.996, age) * sexFactor; // без race
 }
 function stageByEgfr(gfr: number) {
   if (!Number.isFinite(gfr)) return '';
@@ -67,33 +68,37 @@ function chipColors(stage: string) {
   return 'bg-red-100 text-red-800 border-red-200';
 }
 
+/* ── Компонент ─────────────────────────────────────────── */
 export default function CKDEpiPage() {
   const [formula, setFormula] = useState<Formula>('CKD-EPI 2021');
   const [sex, setSex] = useState<Sex>('Жіноча');
   const [unit, setUnit] = useState<Unit>('мкмоль/л');
 
+  // расовий коефіцієнт тільки для CKD-EPI 2009
+  const [isBlack, setIsBlack] = useState<'Ні' | 'Так'>('Ні');
+
   const [ageStr, setAgeStr] = useState<string>('');
   const [scrStr, setScrStr] = useState<string>(''); // креатинін
   const [cysStr, setCysStr] = useState<string>(''); // цистатин С
 
+  const usingCys = formula === 'CKD-EPI 2012 (цистатин С)';
+  const using2009 = formula === 'CKD-EPI 2009';
+
   const ageNum = useMemo(() => (ageStr ? parseInt(ageStr, 10) : NaN), [ageStr]);
   const scrNum = useMemo(() => toNumberOrNaN(scrStr), [scrStr]);
   const cysNum = useMemo(() => toNumberOrNaN(cysStr), [cysStr]);
-  const usingCys = formula === 'CKD-EPI 2012 (цистатин С)';
 
   const canCalc =
     Number.isFinite(ageNum) &&
     ageNum > 0 &&
     (usingCys ? Number.isFinite(cysNum) && cysNum > 0 : Number.isFinite(scrNum) && scrNum > 0);
 
-  // ---- результат у стані, без alert
   const [result, setResult] = useState<{ gfr: number; stage: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // якщо редагують вхідні дані — сховати старий результат
     setResult(null);
-  }, [ageStr, scrStr, cysStr, sex, unit, formula]);
+  }, [ageStr, scrStr, cysStr, sex, unit, formula, isBlack]);
 
   const handleCalc = () => {
     if (!canCalc) return;
@@ -102,8 +107,8 @@ export default function CKDEpiPage() {
       gfr = egfrCkdEpi2012Cys(cysNum, ageNum, sex);
     } else {
       const scrMgDl = unit === 'мкмоль/л' ? scrNum / 88.4 : scrNum;
-      gfr = formula === 'CKD-EPI 2009'
-        ? egfrCkdEpi2009(scrMgDl, ageNum, sex)
+      gfr = using2009
+        ? egfrCkdEpi2009(scrMgDl, ageNum, sex, isBlack === 'Так')
         : egfrCkdEpi2021(scrMgDl, ageNum, sex);
     }
     const rounded = Math.round(gfr);
@@ -112,7 +117,8 @@ export default function CKDEpiPage() {
 
   const copy = async () => {
     if (!result) return;
-    const text = `eGFR: ${result.gfr} мл/хв/1.73м² — ${result.stage}`;
+    const text = `eGFR: ${result.gfr} мл/хв/1.73м² — ${result.stage}` +
+      (using2009 ? ` (CKD-EPI 2009${isBlack === 'Так' ? ', race×1.159' : ''})` : '');
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -140,18 +146,44 @@ export default function CKDEpiPage() {
                 <option>CKD-EPI 2009</option>
                 <option>CKD-EPI 2012 (цистатин С)</option>
               </select>
+              {using2009 && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Примітка: версія 2009 містить расовий коефіцієнт для пацієнтів Black/African American (×1.159).
+                  У формулі 2021 цей коефіцієнт прибрано.
+                </p>
+              )}
             </div>
 
-            <div>
-              <label className="block font-semibold mb-2">Стать:</label>
-              <select
-                value={sex}
-                onChange={(e) => setSex(e.target.value as Sex)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option>Жіноча</option>
-                <option>Чоловіча</option>
-              </select>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block font-semibold mb-2">Стать:</label>
+                <select
+                  value={sex}
+                  onChange={(e) => setSex(e.target.value as Sex)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option>Жіноча</option>
+                  <option>Чоловіча</option>
+                </select>
+              </div>
+
+              {using2009 ? (
+                <div>
+                  <label className="block font-semibold mb-2">
+                    Black/African American (для CKD-EPI 2009):
+                  </label>
+                  <select
+                    value={isBlack}
+                    onChange={(e) => setIsBlack(e.target.value as 'Ні' | 'Так')}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option>Ні</option>
+                    <option>Так</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="hidden sm:block" />
+              )}
             </div>
 
             <div>
@@ -224,7 +256,7 @@ export default function CKDEpiPage() {
               )}
             </div>
 
-            {/* Результат без alert */}
+            {/* Результат */}
             {result && (
               <div className="mt-2 rounded-xl border p-4 shadow-sm bg-white/70">
                 <div className="flex items-center justify-between gap-3">
@@ -240,6 +272,11 @@ export default function CKDEpiPage() {
                     >
                       {result.stage}
                     </div>
+                    {using2009 && (
+                      <div className="text-xs text-slate-500 mt-2">
+                        Формула: CKD-EPI 2009{isBlack === 'Так' ? ' (з race×1.159)' : ''}.
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={copy}

@@ -102,12 +102,20 @@ export default function Page() {
     Array(flatQuestions.length).fill(null)
   );
 
-  const radiosRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const radiosRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const answeredCount = answers.filter((v) => v !== null).length;
   const progress = Math.round((answeredCount / answers.length) * 100);
 
-  const totalScore = answers.reduce((sum, v) => sum + (v ?? 0), 0);
+  // ✅ фікс типів: акумулятор number
+  const totalScore = useMemo(
+    () =>
+      answers.reduce<number>((sum, v) => {
+        return sum + (v ?? 0);
+      }, 0),
+    [answers]
+  );
+
   const sarcFPositive = totalScore >= 4;
 
   function interpret(score: number) {
@@ -152,7 +160,10 @@ export default function Page() {
       radiosRefs.current[first]?.classList.add("ring-2", "ring-amber-400");
       setTimeout(
         () =>
-          radiosRefs.current[first]?.classList.remove("ring-2", "ring-amber-400"),
+          radiosRefs.current[first]?.classList.remove(
+            "ring-2",
+            "ring-amber-400"
+          ),
         1500
       );
     }
@@ -263,7 +274,10 @@ export default function Page() {
                   return (
                     <div
                       key={qIndex}
-                      ref={(el) => (radiosRefs.current[qIndex] = el)}
+                      // ✅ ref-колбек повертає void
+                      ref={(el) => {
+                        radiosRefs.current[qIndex] = el;
+                      }}
                       className={`rounded-xl p-3 transition ${
                         selected === null ? "bg-amber-50" : "bg-white"
                       }`}

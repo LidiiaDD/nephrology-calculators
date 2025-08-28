@@ -57,7 +57,7 @@ const pill = (t: Tone) =>
     ? "bg-orange-100 text-orange-900"
     : "bg-red-100 text-red-900";
 
-// орієнтовне бандування за середнім балом (0–4)
+// Орієнтовне бандування за середнім балом (0–4)
 function meanBand(mean: number): { label: string; tone: Tone } {
   if (mean < 1) return { label: "мінімальна вираженість", tone: "green" };
   if (mean < 2) return { label: "легка вираженість", tone: "yellow" };
@@ -275,4 +275,3 @@ export default function DSIPage() {
     </div>
   );
 }
-

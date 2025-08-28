@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 type Sex = '' | 'male' | 'female';
 type Region = '' | 'low' | 'moderate' | 'high' | 'veryHigh';
@@ -11,14 +11,13 @@ const fmt1 = (n: number) =>
   n.toLocaleString('uk-UA', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 function parseDec(s: string): number | null {
-  // приймаємо і «,» і «.»; дозволяємо порожнє значення
   const t = (s ?? '').replace(',', '.').trim();
   if (!t) return null;
   const x = Number(t);
   return Number.isFinite(x) ? x : null;
 }
 
-/** Плавна логістична модель (калібрована під реалістичні діапазони). */
+/** Плавна логістична модель (калібрована, не офіційні таблиці ESC). */
 function calcRisk({
   age,
   sex,
@@ -40,18 +39,13 @@ function calcRisk({
 }) {
   const nonHDL = Math.max(0, tc - hdl);
 
-  // базові точки (див. пояснення у попередніх версіях)
   let z = sex === 'female' ? -2.944 : -2.442;
-
   z += 0.060 * (age - 60);
   z += 0.34 * ((sbp - 120) / 20);
   z += 0.36 * (nonHDL - 3.2);
-
   if (smoker) z += 0.55;
   if (diabetes) z += 0.65;
-
   z += { low: -0.35, moderate: 0, high: 0.25, veryHigh: 0.55 }[region];
-
   if (age >= 70) z += 0.35;
   if (age >= 80) z += 0.25;
 
@@ -81,31 +75,39 @@ const Card = ({ children, className = '' }: { children: React.ReactNode; classNa
 );
 
 export default function Page() {
-  // ❗️ВСІ поля початково порожні
+  // Порожні значення на старті
   const [ageStr, setAgeStr] = useState('');
   const [sex, setSex] = useState<Sex>('');
-  const [region, setRegion] = useState<Region>(''); // для України оберіть «Дуже високий»
+  const [region, setRegion] = useState<Region>(''); // Для України оберіть «Дуже високий»
   const [sbpStr, setSbpStr] = useState('');
   const [tcStr, setTcStr] = useState('');
   const [hdlStr, setHdlStr] = useState('');
   const [smoker, setSmoker] = useState(false);
   const [diabetes, setDiabetes] = useState(false);
 
-  // Парсимо на кожному рендері (без кешування)
-  const age = parseDec(ageStr);
-  const sbp = parseDec(sbpStr);
-  const tc = parseDec(tcStr);
-  const hdl = parseDec(hdlStr);
+  // Парсинг
+  const age = useMemo(() => parseDec(ageStr), [ageStr]);
+  const sbp = useMemo(() => parseDec(sbpStr), [sbpStr]);
+  const tc = useMemo(() => parseDec(tcStr), [tcStr]);
+  const hdl = useMemo(() => parseDec(hdlStr), [hdlStr]);
   const nonHDL = tc != null && hdl != null ? Math.max(0, +(tc - hdl).toFixed(2)) : null;
 
-  // Готовність до розрахунку: усе має бути валідно
-  const ready =
-    age != null && age >= 40 && age <= 89 &&
-    sex !== '' &&
-    region !== '' &&
-    sbp != null && sbp >= 90 && sbp <= 240 &&
-    tc != null && tc >= 2 && tc <= 12 &&
-    hdl != null && hdl >= 0.6 && hdl <= 3.5;
+  // Валідація
+  const v = {
+    age: age != null && age >= 40 && age <= 89,
+    sex: sex !== '',
+    region: region !== '',
+    sbp: sbp != null && sbp >= 90 && sbp <= 240,
+    tc: tc != null && tc >= 2 && tc <= 12,
+    hdl: hdl != null && hdl >= 0.6 && hdl <= 3.5,
+  };
+  const ready = v.age && v.sex && v.region && v.sbp && v.tc && v.hdl;
+
+  // Прогрес заповнення
+  const totalRequired = 6 + 2; // 6 числових/діапазон + стать, регіон
+  const filled =
+    (v.age ? 1 : 0) + (v.sex ? 1 : 0) + (v.region ? 1 : 0) + (v.sbp ? 1 : 0) + (v.tc ? 1 : 0) + (v.hdl ? 1 : 0);
+  const progress = Math.round((filled / totalRequired) * 100);
 
   const risk = ready
     ? calcRisk({
@@ -126,17 +128,32 @@ export default function Page() {
     ? 'Дані не повні — скопіювати нема що.'
     : `SCORE2/SCORE2-OP: ${fmt1(risk)}% (${klass!.label})
 Вік ${age}, стать ${sex === 'male' ? 'чол' : 'жін'}, регіон ${region}
-АТ  ${sbp} мм рт.ст.; TC ${tc}; HDL ${hdl}; non-HDL ${nonHDL}
+АТ ${sbp} мм рт.ст.; TC ${tc}; HDL ${hdl}; non-HDL ${nonHDL}
 Куріння: ${smoker ? 'так' : 'ні'}; Діабет 2 типу: ${diabetes ? 'так' : 'ні'}`;
+
+  const invalidCls = 'border-rose-300 focus:ring-rose-200';
+  const baseInput = 'w-full rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2';
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 pt-8">
-      <h1 className="mb-2 text-3xl font-semibold">
-        SCORE2 / SCORE2-OP <span className="text-gray-500">(10-річний ризик ССЗ)</span>
-      </h1>
-      <p className="mb-6 text-sm text-gray-500">
-        Поля спочатку порожні. Десятковий роздільник — «,» або «.» • Для України оберіть регіон <b>«Дуже високий»</b>.
-      </p>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="mb-1 text-3xl font-semibold">SCORE2 / SCORE2-OP</h1>
+          <p className="text-sm text-gray-500">
+            Поля спочатку порожні. Десятковий роздільник — «,» або «.» • Для України оберіть регіон <b>«Дуже високий»</b>.
+          </p>
+        </div>
+        <div className="min-w-[180px]">
+          <div className="mb-1 text-right text-xs text-gray-500">Заповнення: {progress}%</div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div
+              className="h-2 bg-sky-500 transition-all"
+              style={{ width: `${progress}%` }}
+              aria-label={`Заповнення ${progress}%`}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="grid items-start gap-6 md:grid-cols-2">
         <Card>
@@ -145,7 +162,7 @@ export default function Page() {
               <label className="mb-1 block text-sm font-medium text-gray-800">Вік (років)</label>
               <input
                 placeholder="Напр., 67"
-                className="w-full rounded-xl border px-3 py-2.5"
+                className={`${baseInput} ${ageStr && !v.age ? invalidCls : ''}`}
                 value={ageStr}
                 onChange={(e) => setAgeStr(e.target.value)}
                 inputMode="decimal"
@@ -157,7 +174,7 @@ export default function Page() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-800">Стать</label>
                 <select
-                  className="w-full rounded-xl border px-3 py-2.5"
+                  className={`${baseInput} ${sex === '' ? '' : ''} appearance-none`}
                   value={sex}
                   onChange={(e) => setSex(e.target.value as Sex)}
                 >
@@ -169,7 +186,7 @@ export default function Page() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-800">Регіон ризику</label>
                 <select
-                  className="w-full rounded-xl border px-3 py-2.5"
+                  className={`${baseInput} appearance-none ${region === '' ? '' : ''}`}
                   value={region}
                   onChange={(e) => setRegion(e.target.value as Region)}
                 >
@@ -179,6 +196,7 @@ export default function Page() {
                   <option value="high">Високий</option>
                   <option value="veryHigh">Дуже високий</option>
                 </select>
+                <div className="mt-1 text-xs text-gray-500">Україна належить до «Дуже високого» ризику.</div>
               </div>
             </div>
 
@@ -187,21 +205,23 @@ export default function Page() {
                 <label className="mb-1 block text-sm font-medium text-gray-800">Систолічний АТ, мм рт.ст.</label>
                 <input
                   placeholder="Напр., 122"
-                  className="w-full rounded-xl border px-3 py-2.5"
+                  className={`${baseInput} ${sbpStr && !v.sbp ? invalidCls : ''}`}
                   value={sbpStr}
                   onChange={(e) => setSbpStr(e.target.value)}
                   inputMode="decimal"
                 />
+                <div className="mt-1 text-xs text-gray-500">Діапазон: 90–240.</div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-800">Загальний холестерин (TC), ммоль/л</label>
                 <input
                   placeholder="Напр., 5,5"
-                  className="w-full rounded-xl border px-3 py-2.5"
+                  className={`${baseInput} ${tcStr && !v.tc ? invalidCls : ''}`}
                   value={tcStr}
                   onChange={(e) => setTcStr(e.target.value)}
                   inputMode="decimal"
                 />
+                <div className="mt-1 text-xs text-gray-500">Діапазон: 2.0–12.0.</div>
               </div>
             </div>
 
@@ -210,13 +230,13 @@ export default function Page() {
                 <label className="mb-1 block text-sm font-medium text-gray-800">Холестерин ЛПВЩ (HDL), ммоль/л</label>
                 <input
                   placeholder="Напр., 1,4"
-                  className="w-full rounded-xl border px-3 py-2.5"
+                  className={`${baseInput} ${hdlStr && !v.hdl ? invalidCls : ''}`}
                   value={hdlStr}
                   onChange={(e) => setHdlStr(e.target.value)}
                   inputMode="decimal"
                 />
                 <div className="mt-1 text-xs text-gray-500">
-                  non-HDL = TC − HDL → <b>{nonHDL != null ? fmt1(nonHDL) : '—'}</b> ммоль/л
+                  non-HDL = TC − HDL → <b>{nonHDL != null ? fmt1(nonHDL) : '—'}</b> ммоль/л (діапазон HDL: 0.6–3.5).
                 </div>
               </div>
               <div className="flex items-end gap-3">
@@ -237,11 +257,13 @@ export default function Page() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-sm text-gray-500">10-річний ризик (фатальні + нефатальні події)</div>
-              <div className="mt-1 text-5xl font-semibold">
-                {risk == null ? '—' : `${fmt1(risk)}%`}
-              </div>
+              <div className="mt-1 text-5xl font-semibold">{risk == null ? '—' : `${fmt1(risk)}%`}</div>
               <div className="mt-3">
-                {klass ? <Pill color={klass.color}>{`Клас: ${klass.label}`}</Pill> : <span className="text-sm text-gray-400">Заповніть усі поля</span>}
+                {klass ? (
+                  <Pill color={klass.color}>{`Клас: ${klass.label}`}</Pill>
+                ) : (
+                  <span className="text-sm text-gray-400">Заповніть усі поля</span>
+                )}
               </div>
             </div>
             <button
@@ -249,13 +271,13 @@ export default function Page() {
               onClick={() => navigator.clipboard.writeText(copy)}
               disabled={risk == null}
             >
-              Копіювати
+              Скопіювати
             </button>
           </div>
 
           <ul className="mt-5 space-y-2 text-sm text-gray-700">
             <li>• Розрахунок оновлюється миттєво після кожної зміни поля.</li>
-            <li>• Вік &lt;70 → SCORE2; вік ≥70 → SCORE2-OP (додається поправка).</li>
+            <li>• Вік &lt; 70 → SCORE2; вік ≥ 70 → SCORE2-OP (з урахуванням поправки).</li>
           </ul>
 
           <div className="mt-6 rounded-2xl border bg-gray-50 px-4 py-3 text-sm text-gray-600">

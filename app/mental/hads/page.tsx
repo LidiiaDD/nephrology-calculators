@@ -1,48 +1,48 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 
 /* ───────── Дані опитника ───────── */
+// 7 пунктів тривоги (HADS-A) + 7 пунктів депресії (HADS-D)
 const HADS_QUESTIONS = [
-  // HADS-A (тривога)
-  "1. Відчуваю напругу чи занепокоєння",
-  "2. Маю відчуття страху без причини",
-  "3. Сильно непокоюсь щодо дрібниць",
-  "4. Відчуваю неспокій, не можу всидіти на місці",
-  "5. Відчуваю раптове почуття паніки",
-  "6. Відчуваю внутрішнє тремтіння",
-  "7. Маю труднощі з розслабленням",
-
-  // HADS-D (депресія)
-  "8. Втрачаю цікавість до речей",
-  "9. Мені важко сміятись",
-  "10. Я песимістично налаштований щодо майбутнього",
-  "11. Важко отримати задоволення від речей",
-  "12. Відчуваю себе сповільненим",
-  "13. Мене не радують речі, які раніше радували",
-  "14. Відчуваю себе пригніченим",
-];
+  // HADS-A
+  '1. Відчуваю напругу чи занепокоєння',
+  '2. Маю відчуття страху без причини',
+  '3. Сильно непокоюсь щодо дрібниць',
+  '4. Відчуваю неспокій, не можу всидіти на місці',
+  '5. Відчуваю раптове почуття паніки',
+  '6. Відчуваю внутрішнє тремтіння',
+  '7. Маю труднощі з розслабленням',
+  // HADS-D
+  '8. Втрачаю цікавість до речей',
+  '9. Мені важко сміятись',
+  '10. Я песимістично налаштований щодо майбутнього',
+  '11. Важко отримати задоволення від речей',
+  '12. Відчуваю себе сповільненим',
+  '13. Мене не радують речі, які раніше радували',
+  '14. Відчуваю себе пригніченим',
+] as const;
 
 const OPTIONS = [
-  { label: "0 — Ніколи/дуже рідко", points: 0 },
-  { label: "1 — Іноді", points: 1 },
-  { label: "2 — Часто", points: 2 },
-  { label: "3 — Дуже часто/постійно", points: 3 },
-];
+  { label: '0 — Ніколи/дуже рідко', points: 0 },
+  { label: '1 — Іноді', points: 1 },
+  { label: '2 — Часто', points: 2 },
+  { label: '3 — Дуже часто/постійно', points: 3 },
+] as const;
 
-const pill = (tone: "green" | "yellow" | "red") =>
-  tone === "green"
-    ? "bg-green-100 text-green-900"
-    : tone === "yellow"
-    ? "bg-yellow-100 text-yellow-900"
-    : "bg-red-100 text-red-900";
+type Tone = 'green' | 'yellow' | 'red';
+const pill = (tone: Tone) =>
+  tone === 'green'
+    ? 'bg-green-100 text-green-900'
+    : tone === 'yellow'
+    ? 'bg-yellow-100 text-yellow-900'
+    : 'bg-red-100 text-red-900';
 
-const LS_KEY = "hads_v3";
+const LS_KEY = 'hads_v3';
 
-/* ───────── Компонент ───────── */
 export default function HADSPage() {
-  // null = відповідь не обрана (щоб поля були ПУСТІ за замовч.)
+  // null = відповідь не обрана (щоб поля були ПУСТІ на старті)
   const [answers, setAnswers] = useState<Array<number | null>>(
     Array(HADS_QUESTIONS.length).fill(null)
   );
@@ -51,7 +51,7 @@ export default function HADSPage() {
   const resRef = useRef<HTMLDivElement | null>(null);
   const scrolledOnce = useRef(false);
 
-  // Відновлення/збереження
+  /* Відновлення / збереження стану */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -59,56 +59,64 @@ export default function HADSPage() {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed?.answers)) setAnswers(parsed.answers);
       }
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, []);
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ answers }));
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ answers }));
+    } catch {
+      /* ignore */
+    }
   }, [answers]);
 
   const setAns = (idx: number, val: number) => {
     setTouched(true);
-    setAnswers((prev) => {
+    setAnswers(prev => {
       const copy = [...prev];
       copy[idx] = val;
       return copy;
     });
   };
 
+  /* Підрахунок підшкал */
   const hadsA = useMemo(
-    () => answers.slice(0, 7).reduce((sum, v) => sum + (v ?? 0), 0),
+    () => answers.slice(0, 7).reduce<number>((sum, v) => sum + (v ?? 0), 0),
     [answers]
   );
   const hadsD = useMemo(
-    () => answers.slice(7).reduce((sum, v) => sum + (v ?? 0), 0),
+    () => answers.slice(7).reduce<number>((sum, v) => sum + (v ?? 0), 0),
     [answers]
   );
 
-  const answeredCount = answers.filter((v) => v != null).length;
+  const answeredCount = answers.filter(v => v != null).length;
   const allAnswered = answeredCount === HADS_QUESTIONS.length;
 
-  // Автоскрол, коли вперше все заповнили
+  /* Автопрокрутка до результату при першому повному заповненні */
   useEffect(() => {
     if (allAnswered && !scrolledOnce.current) {
-      resRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      resRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       scrolledOnce.current = true;
     }
   }, [allAnswered]);
 
-  // Інтерпретація підшкал
+  /* Інтерпретації */
   function interpret(score: number) {
-    if (score <= 7) return { label: "Норма (0–7)", tone: "green" as const };
-    if (score <= 10) return { label: "Прикордонний рівень (8–10)", tone: "yellow" as const };
-    return { label: "Вірогідний клінічний рівень (11–21)", tone: "red" as const };
+    if (score <= 7) return { label: 'Норма (0–7)', tone: 'green' as const };
+    if (score <= 10) return { label: 'Прикордонний рівень (8–10)', tone: 'yellow' as const };
+    return { label: 'Вірогідний клінічний рівень (11–21)', tone: 'red' as const };
   }
   const aInterp = interpret(hadsA);
   const dInterp = interpret(hadsD);
 
+  /* Копіювання результату */
   const onCopy = async () => {
     if (!allAnswered) return;
     const txt = `HADS-A: ${hadsA}/21 — ${aInterp.label}; HADS-D: ${hadsD}/21 — ${dInterp.label}`;
     try {
       await navigator.clipboard.writeText(txt);
-      alert("Скопійовано у буфер обміну.");
+      alert('Скопійовано у буфер обміну.');
     } catch {
       alert(txt);
     }
@@ -128,10 +136,12 @@ export default function HADSPage() {
         <b> HADS-A</b> (тривога) та <b>HADS-D</b> (депресія).
       </p>
 
-      {/* Прогрес */}
+      {/* Прогрес заповнення */}
       <div className="mb-4">
         <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-          <span>Заповнено: {answeredCount} / {HADS_QUESTIONS.length}</span>
+          <span>
+            Заповнено: {answeredCount} / {HADS_QUESTIONS.length}
+          </span>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div
@@ -141,13 +151,13 @@ export default function HADSPage() {
         </div>
       </div>
 
-      {/* Форма */}
+      {/* Форма опитника */}
       <div className="bg-white rounded-2xl shadow p-4 md:p-6 space-y-5">
         {HADS_QUESTIONS.map((q, idx) => {
           const sel = answers[idx];
           const missing = touched && sel == null;
           return (
-            <div key={idx} className={missing ? "border-l-4 border-red-400 pl-3" : ""}>
+            <div key={idx} className={missing ? 'border-l-4 border-red-400 pl-3' : ''}>
               <div className="font-medium mb-2">{q}</div>
               <div className="flex flex-wrap gap-4">
                 {OPTIONS.map((opt, i) => (
@@ -179,9 +189,9 @@ export default function HADSPage() {
             onClick={onCopy}
             disabled={!allAnswered}
             className={`rounded-xl px-5 py-2 font-semibold transition ${
-              allAnswered ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-gray-200 text-gray-500"
+              allAnswered ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-200 text-gray-500'
             }`}
-            title={allAnswered ? "Скопіювати підсумок" : "Заповніть усі пункти, щоб скопіювати"}
+            title={allAnswered ? 'Скопіювати підсумок' : 'Заповніть усі пункти, щоб скопіювати'}
           >
             Копіювати
           </button>
@@ -196,7 +206,9 @@ export default function HADSPage() {
           </div>
           <div className="mt-2 inline-flex items-center gap-2 text-sm">
             <span className={`px-3 py-1 rounded-full ${pill(aInterp.tone)}`}>{aInterp.label}</span>
-            {!allAnswered && <span className="text-gray-500">(заповніть усі пункти для коректної інтерпретації)</span>}
+            {!allAnswered && (
+              <span className="text-gray-500">(заповніть усі пункти для коректної інтерпретації)</span>
+            )}
           </div>
 
           <div className="mt-4 text-lg md:text-xl font-bold">
@@ -204,12 +216,14 @@ export default function HADSPage() {
           </div>
           <div className="mt-2 inline-flex items-center gap-2 text-sm">
             <span className={`px-3 py-1 rounded-full ${pill(dInterp.tone)}`}>{dInterp.label}</span>
-            {!allAnswered && <span className="text-gray-500">(заповніть усі пункти для коректної інтерпретації)</span>}
+            {!allAnswered && (
+              <span className="text-gray-500">(заповніть усі пункти для коректної інтерпретації)</span>
+            )}
           </div>
 
           <div className="mt-3 text-xs text-gray-500">
-            Примітка: HADS виключає виражені соматичні симптоми й використовується як **скринінговий** інструмент,
-            не є діагнозом і потребує клінічного підтвердження.
+            Примітка: HADS виключає виражені соматичні симптоми й використовується як
+            <b> скринінговий</b> інструмент; це не діагноз і потребує клінічного підтвердження.
           </div>
         </div>
       </div>

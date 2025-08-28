@@ -28,7 +28,7 @@ const OPTIONS = [
   { v: 2, label: "2 — Іноді / Посередньо" },
   { v: 3, label: "3 — Часто / Погано" },
   { v: 4, label: "4 — Постійно / Дуже погано" },
-];
+] as const;
 
 type Choice = "" | 0 | 1 | 2 | 3 | 4;
 
@@ -41,21 +41,35 @@ export default function Pdqli16Page() {
     () => answers.filter((a) => a !== "").length,
     [answers]
   );
+
+  // ✅ акумулятор явно number + звуження типу для a
   const total = useMemo(
     () =>
-      answers.reduce((acc, a) => (a === "" ? acc : acc + Number(a)), 0),
+      answers.reduce<number>((acc, a) => acc + (a === "" ? 0 : a), 0),
     [answers]
   );
 
-  // класи для бейджів (як у наших інших калькуляторах)
+  // класи для бейджів
   const BAND_STYLES: Record<
     "ok" | "mild" | "moderate" | "severe",
     { chip: string; text: string }
   > = {
-    ok: { chip: "bg-emerald-50 text-emerald-700 ring-emerald-200", text: "У межах норми" },
-    mild: { chip: "bg-amber-50 text-amber-700 ring-amber-200", text: "Легкі порушення" },
-    moderate: { chip: "bg-orange-50 text-orange-700 ring-orange-200", text: "Помірні порушення" },
-    severe: { chip: "bg-red-50 text-red-700 ring-red-200", text: "Виражені порушення" },
+    ok: {
+      chip: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      text: "У межах норми",
+    },
+    mild: {
+      chip: "bg-amber-50 text-amber-700 ring-amber-200",
+      text: "Легкі порушення",
+    },
+    moderate: {
+      chip: "bg-orange-50 text-orange-700 ring-orange-200",
+      text: "Помірні порушення",
+    },
+    severe: {
+      chip: "bg-red-50 text-red-700 ring-red-200",
+      text: "Виражені порушення",
+    },
   };
 
   const interp = useMemo(() => {
@@ -122,8 +136,8 @@ export default function Pdqli16Page() {
           Анкета оцінки якості життя пацієнтів з додіалізною ХХН
         </h1>
         <p className="mt-2 text-sm text-gray-600">
-          Поля спочатку порожні. Оберіть одну відповідь у кожному пункті
-          (0–4). Чим більше балів — тим гірший психоемоційний стан.
+          Поля спочатку порожні. Оберіть одну відповідь у кожному пункті (0–4).
+          Чим більше балів — тим гірший психоемоційний стан.
         </p>
       </header>
 
@@ -133,7 +147,9 @@ export default function Pdqli16Page() {
           <span className="font-medium">
             Заповнено: {answeredCount}/{QUESTIONS.length}
           </span>
-          <span className="tabular-nums">{Math.round((answeredCount / QUESTIONS.length) * 100)}%</span>
+          <span className="tabular-nums">
+            {Math.round((answeredCount / QUESTIONS.length) * 100)}%
+          </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded bg-gray-100">
           <div
@@ -179,7 +195,7 @@ export default function Pdqli16Page() {
         ))}
       </div>
 
-      {/* Результат — уніфікована біла картка */}
+      {/* Результат */}
       <section className="mt-8 rounded-2xl border bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Результат</h2>
@@ -227,17 +243,13 @@ export default function Pdqli16Page() {
         </p>
       </section>
 
-      {/* Attribution — маленька сіра плашка як у решти */}
       <div className="mt-6 rounded-2xl border bg-gray-50 p-4 text-xs text-gray-600">
         Анкета створена на кафедрі нефрології та нирковозамісної терапії НУОЗ
         України імені П.&nbsp;Л.&nbsp;Шупика.
       </div>
 
       <div className="mt-6">
-        <Link
-          href="/mental"
-          className="text-blue-700 underline-offset-4 hover:underline"
-        >
+        <Link href="/mental" className="text-blue-700 underline-offset-4 hover:underline">
           ← Назад до психоемоційних шкал
         </Link>
       </div>
